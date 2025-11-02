@@ -336,6 +336,32 @@ func itoaU(v uint32) string {
 	return fmt.Sprintf("%d", v)
 }
 
+// extractBodyFromRawEmail extracts body content from raw email text by skipping headers
+func extractBodyFromRawEmail(rawEmail string) string {
+	lines := strings.Split(rawEmail, "\n")
+	inBody := false
+	var bodyLines []string
+
+	for _, line := range lines {
+		if !inBody {
+			// Look for empty line that separates headers from body
+			if strings.TrimSpace(line) == "" {
+				inBody = true
+				continue
+			}
+		} else {
+			// We're in the body section
+			bodyLines = append(bodyLines, line)
+		}
+	}
+
+	body := strings.Join(bodyLines, "\n")
+	body = strings.TrimSpace(body)
+	
+	log.Debug().Int("body_length", len(body)).Msg("extracted body from raw email")
+	return body
+}
+
 // parseEmailContent parses email content and extracts both body text and attachments
 //
 //nolint:gocyclo,gocritic // Email parsing requires extensive conditional logic and complex if-else chains
@@ -366,9 +392,10 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 
 	mr, err := message.Read(strings.NewReader(string(data)))
 	if err != nil {
-		// Simple email without MIME
-		log.Debug().Err(err).Msg("simple email without MIME structure, using raw data")
-		return string(data), nil
+		// Simple email without MIME - try to extract body manually
+		log.Debug().Err(err).Msg("simple email without MIME structure, trying to extract body manually")
+		body := extractBodyFromRawEmail(string(data))
+		return body, nil
 	}
 
 	mt, _, _ := mr.Header.ContentType()
