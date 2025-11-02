@@ -326,31 +326,31 @@ func TestEngine_EmptyData(t *testing.T) {
 
 func TestEngine_SubjectTrimming(t *testing.T) {
 	tmpDir := t.TempDir()
-	
+
 	// Create template with whitespace - using correct variable names that match RenderNewTicket
 	subjectTemplate := "  [{{.TicketPrefix}}-#{{.TaskID}}] Test Subject  \n"
 	err := os.WriteFile(filepath.Join(tmpDir, "new_ticket_subject.tmpl"), []byte(subjectTemplate), 0644)
 	if err != nil {
 		t.Fatalf("Failed to create template: %v", err)
 	}
-	
+
 	// Create minimal body template
 	bodyTemplate := "Test body"
 	err = os.WriteFile(filepath.Join(tmpDir, "new_ticket_body.tmpl"), []byte(bodyTemplate), 0644)
 	if err != nil {
 		t.Fatalf("Failed to create body template: %v", err)
 	}
-	
+
 	engine, err := New(tmpDir)
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	
+
 	subject, _, err := engine.RenderNewTicket("ML", 123, "Test", "message", 4, 24)
 	if err != nil {
 		t.Fatalf("RenderNewTicket() should not fail: %v", err)
 	}
-	
+
 	expected := "[ML-#123] Test Subject"
 	if subject != expected {
 		t.Errorf("Subject should be trimmed: expected '%s', got '%s'", expected, subject)

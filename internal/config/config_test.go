@@ -229,7 +229,7 @@ func TestConfig_OdooTimeout(t *testing.T) {
 
 func TestConfig_TemplatesDirOrDefault(t *testing.T) {
 	cfg := &Config{}
-	
+
 	dir := cfg.TemplatesDirOrDefault()
 	expected := "./templates"
 	if dir != expected {

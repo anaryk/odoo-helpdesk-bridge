@@ -111,7 +111,7 @@ type CreateTaskInput struct {
 
 func (c *Client) CreateTask(ctx context.Context, in CreateTaskInput) (int64, error) {
 	log.Debug().Str("name", in.Name).Int64("project_id", in.ProjectID).Int64("partner_id", in.CustomerPartnerID).Int64("stage_id", in.StageID).Int("description_length", len(in.Description)).Msg("creating new task")
-	
+
 	if len(in.Description) > 0 {
 		preview := in.Description
 		if len(preview) > 100 {
@@ -121,7 +121,7 @@ func (c *Client) CreateTask(ctx context.Context, in CreateTaskInput) (int64, err
 	} else {
 		log.Warn().Msg("task description is empty")
 	}
-	
+
 	fields := map[string]any{
 		"name":        in.Name,
 		"project_id":  in.ProjectID,
@@ -138,9 +138,9 @@ func (c *Client) CreateTask(ctx context.Context, in CreateTaskInput) (int64, err
 	if err != nil {
 		return id, err
 	}
-	
+
 	log.Debug().Int64("task_id", id).Msg("task created successfully")
-	
+
 	// Add customer as follower (for notifications)
 	if in.CustomerPartnerID > 0 {
 		if followerErr := c.AddFollower(ctx, id, in.CustomerPartnerID); followerErr != nil {
@@ -356,13 +356,13 @@ func stripTags(s string) string {
 // --- tasks ---
 
 type Task struct {
-	ID            int64
-	Name          string
-	StageID       int64
-	StageName     string
-	CustomerEmail string
-	CustomerName  string
-	TaskURL       string
+	ID               int64
+	Name             string
+	StageID          int64
+	StageName        string
+	CustomerEmail    string
+	CustomerName     string
+	TaskURL          string
 	AssignedUserID   int64
 	AssignedUserName string
 }
@@ -393,7 +393,7 @@ func (c *Client) GetTask(ctx context.Context, id int64) (*Task, error) {
 			email, _ = c.partnerEmailName(ctx, partnerID)
 		}
 	}
-	
+
 	// Get assigned user info
 	userPair := anySlice(r["user_id"])
 	var assignedUserID int64
@@ -402,15 +402,15 @@ func (c *Client) GetTask(ctx context.Context, id int64) (*Task, error) {
 		assignedUserID = toInt64(userPair[0])
 		assignedUserName = str(userPair[1])
 	}
-	
+
 	t := &Task{
-		ID:            toInt64(r["id"]),
-		Name:          str(r["name"]),
-		StageID:       stageID,
-		StageName:     stageName,
-		CustomerEmail: email,
-		CustomerName:  pname,
-		TaskURL:       c.TaskURL(c.cfg.URL, toInt64(r["id"])),
+		ID:               toInt64(r["id"]),
+		Name:             str(r["name"]),
+		StageID:          stageID,
+		StageName:        stageName,
+		CustomerEmail:    email,
+		CustomerName:     pname,
+		TaskURL:          c.TaskURL(c.cfg.URL, toInt64(r["id"])),
 		AssignedUserID:   assignedUserID,
 		AssignedUserName: assignedUserName,
 	}
@@ -448,7 +448,7 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) 
 			stageID = toInt64(stagePair[0])
 			stageName = str(stagePair[1])
 		}
-		
+
 		// Get partner (customer) email and name
 		partnerPair := anySlice(r["partner_id"])
 		var email, pname string
@@ -459,7 +459,7 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) 
 				email, _ = c.partnerEmailName(ctx, partnerID)
 			}
 		}
-		
+
 		// Get assigned user info
 		userPair := anySlice(r["user_id"])
 		var assignedUserID int64
@@ -468,13 +468,13 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) 
 			assignedUserID = toInt64(userPair[0])
 			assignedUserName = str(userPair[1])
 		}
-		
+
 		out = append(out, &Task{
 			ID:      toInt64(r["id"]),
 			Name:    str(r["name"]),
 			StageID: stageID, StageName: stageName,
 			CustomerEmail: email, CustomerName: pname,
-			TaskURL: c.TaskURL(c.cfg.URL, toInt64(r["id"])),
+			TaskURL:          c.TaskURL(c.cfg.URL, toInt64(r["id"])),
 			AssignedUserID:   assignedUserID,
 			AssignedUserName: assignedUserName,
 		})
@@ -505,13 +505,13 @@ func (c *Client) ListRecentlyChangedTasksForSLA(ctx context.Context, since time.
 			stageID = toInt64(stagePair[0])
 			stageName = str(stagePair[1])
 		}
-		
+
 		out = append(out, &Task{
-			ID:       toInt64(r["id"]),
-			Name:     str(r["name"]),
-			StageID:  stageID,
+			ID:        toInt64(r["id"]),
+			Name:      str(r["name"]),
+			StageID:   stageID,
 			StageName: stageName,
-			TaskURL:  c.TaskURL(c.cfg.URL, toInt64(r["id"])),
+			TaskURL:   c.TaskURL(c.cfg.URL, toInt64(r["id"])),
 		})
 	}
 	return out, nil
@@ -540,7 +540,7 @@ func (c *Client) SetTaskStage(ctx context.Context, taskID, stageID int64) error 
 // AssignTask assigns a task to a user
 func (c *Client) AssignTask(ctx context.Context, taskID int64, userEmail string) error {
 	log.Debug().Str("user_email", userEmail).Int64("task_id", taskID).Msg("searching for user to assign task")
-	
+
 	// Find user by email
 	var userIDs []int64
 	err := c.execKW(ctx, "res.users", "search", []any{[][]any{{"login", "=", userEmail}}}, map[string]any{"limit": 1}, &userIDs)
@@ -552,7 +552,7 @@ func (c *Client) AssignTask(ctx context.Context, taskID int64, userEmail string)
 		log.Error().Str("user_email", userEmail).Msg("user not found in Odoo")
 		return fmt.Errorf("user not found: %s", userEmail)
 	}
-	
+
 	log.Debug().Int64("user_id", userIDs[0]).Str("user_email", userEmail).Int64("task_id", taskID).Msg("found user, assigning task")
 
 	// Use user_ids field with Many2many format (more reliable than user_id)
@@ -560,15 +560,15 @@ func (c *Client) AssignTask(ctx context.Context, taskID int64, userEmail string)
 	updateFields := map[string]any{
 		"user_ids": [][]any{[]any{6, 0, userIDs}}, // Replace existing assignees
 	}
-	
+
 	err = c.execKW(ctx, "project.task", "write", []any{[]int64{taskID}, updateFields}, nil, &ok)
 	if err != nil {
 		log.Error().Err(err).Int64("task_id", taskID).Int64("user_id", userIDs[0]).Msg("task assignment failed")
 		return err
 	}
-	
+
 	log.Debug().Int64("task_id", taskID).Int64("user_id", userIDs[0]).Bool("success", ok).Msg("task assignment completed")
-	
+
 	return nil
 }
 
@@ -576,7 +576,7 @@ func (c *Client) AssignTask(ctx context.Context, taskID int64, userEmail string)
 func (c *Client) GetTaskCounts(ctx context.Context, projectID int64, operatorEmails []string) (map[string]int, error) {
 	log.Debug().Int64("project_id", projectID).Strs("operators", operatorEmails).Msg("getting task counts for operators")
 	counts := make(map[string]int)
-	
+
 	for _, email := range operatorEmails {
 		// Find user ID
 		var userIDs []int64
@@ -606,7 +606,7 @@ func (c *Client) GetTaskCounts(ctx context.Context, projectID int64, operatorEma
 		counts[email] = len(taskIDs)
 		log.Debug().Str("operator_email", email).Int64("user_id", userIDs[0]).Int("task_count", len(taskIDs)).Msg("counted tasks for operator")
 	}
-	
+
 	log.Debug().Any("counts", counts).Msg("task counts for all operators")
 	return counts, nil
 }
@@ -622,30 +622,30 @@ type OdooAttachment struct {
 // UploadAttachment uploads an attachment to a task
 func (c *Client) UploadAttachment(ctx context.Context, taskID int64, filename string, contentType string, data []byte) (*OdooAttachment, error) {
 	log.Debug().Int64("task_id", taskID).Str("filename", filename).Str("content_type", contentType).Int("data_size", len(data)).Msg("uploading attachment to Odoo")
-	
+
 	// Encode data to base64
 	encodedData := base64.StdEncoding.EncodeToString(data)
 	log.Debug().Int("encoded_size", len(encodedData)).Msg("encoded attachment data")
-	
+
 	// Create attachment record
 	attachmentData := map[string]any{
-		"name":        filename,
-		"datas":       encodedData,
-		"res_model":   "project.task",
-		"res_id":      taskID,
-		"mimetype":    contentType,
-		"type":        "binary",
+		"name":      filename,
+		"datas":     encodedData,
+		"res_model": "project.task",
+		"res_id":    taskID,
+		"mimetype":  contentType,
+		"type":      "binary",
 	}
-	
+
 	var attachmentID int64
 	err := c.execKW(ctx, "ir.attachment", "create", []any{attachmentData}, nil, &attachmentID)
 	if err != nil {
 		log.Error().Err(err).Int64("task_id", taskID).Str("filename", filename).Msg("failed to create attachment in Odoo")
 		return nil, err
 	}
-	
+
 	log.Debug().Int64("attachment_id", attachmentID).Int64("task_id", taskID).Str("filename", filename).Msg("attachment uploaded successfully to Odoo")
-	
+
 	return &OdooAttachment{
 		ID:       attachmentID,
 		Name:     filename,
@@ -664,17 +664,17 @@ func (c *Client) GetTaskAttachments(ctx context.Context, taskID int64) ([]OdooAt
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if len(attachmentIDs) == 0 {
 		return nil, nil
 	}
-	
+
 	var attachments []map[string]any
 	err = c.execKW(ctx, "ir.attachment", "read", []any{attachmentIDs, []string{"name", "mimetype", "file_size"}}, nil, &attachments)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	result := make([]OdooAttachment, len(attachments))
 	for i, att := range attachments {
 		result[i] = OdooAttachment{
@@ -684,7 +684,7 @@ func (c *Client) GetTaskAttachments(ctx context.Context, taskID int64) ([]OdooAt
 			Size:     int64(att["file_size"].(float64)),
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -695,46 +695,46 @@ func (c *Client) DownloadAttachment(ctx context.Context, attachmentID int64) ([]
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if len(attachments) == 0 {
 		return nil, fmt.Errorf("attachment not found")
 	}
-	
+
 	encodedData, ok := attachments[0]["datas"].(string)
 	if !ok {
 		return nil, fmt.Errorf("no data in attachment")
 	}
-	
+
 	return base64.StdEncoding.DecodeString(encodedData)
 }
 
 // ReopenTask moves a task from closed/done stage to an open stage
 func (c *Client) ReopenTask(ctx context.Context, taskID int64, openStageID int64) (bool, error) {
 	log.Debug().Int64("task_id", taskID).Int64("target_stage_id", openStageID).Msg("checking if task needs reopening")
-	
+
 	// First get current task to check if it needs reopening
 	task, err := c.GetTask(ctx, taskID)
 	if err != nil {
 		return false, fmt.Errorf("failed to get task %d: %w", taskID, err)
 	}
-	
+
 	log.Debug().Int64("task_id", taskID).Int64("current_stage_id", task.StageID).Str("stage_name", task.StageName).Msg("got task current state")
-	
+
 	// Check if task is already in an open stage
 	if !c.IsTaskDone(task, nil) {
 		log.Debug().Int64("task_id", taskID).Msg("task is already open, no reopening needed")
 		return false, nil
 	}
-	
+
 	log.Debug().Int64("task_id", taskID).Msg("task is closed, reopening")
-	
+
 	// Move task to open stage
 	if err := c.SetTaskStage(ctx, taskID, openStageID); err != nil {
 		return false, fmt.Errorf("failed to reopen task %d: %w", taskID, err)
 	}
-	
+
 	log.Debug().Int64("task_id", taskID).Int64("new_stage_id", openStageID).Msg("task stage updated to open")
-	
+
 	// Add a comment about reopening using system message
 	var msgResult any
 	err = c.execKW(ctx, "project.task", "message_post", []any{taskID}, map[string]any{
@@ -745,6 +745,6 @@ func (c *Client) ReopenTask(ctx context.Context, taskID int64, openStageID int64
 		log.Error().Err(err).Int64("task_id", taskID).Msg("failed to add reopening comment, but continuing")
 		// Don't fail the whole operation if comment fails
 	}
-	
+
 	return true, nil
 }

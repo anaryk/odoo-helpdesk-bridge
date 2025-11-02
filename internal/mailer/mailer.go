@@ -68,7 +68,7 @@ func (m *SMTPClient) SendWithAttachments(to, subject, body string, attachments [
 	e.Subject = subject
 	e.Text = []byte(body)
 
-	// Add attachments  
+	// Add attachments
 	for _, att := range attachments {
 		_, err := e.Attach(bytes.NewReader(att.Data), att.Filename, att.ContentType)
 		if err != nil {

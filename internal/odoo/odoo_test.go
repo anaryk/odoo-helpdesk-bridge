@@ -199,7 +199,7 @@ func TestCreateTask_WithoutCustomer(t *testing.T) {
 	if taskID != 456 {
 		t.Errorf("Expected task ID 456, got %d", taskID)
 	}
-	
+
 	// Should only have 2 calls (auth + create), no add follower call
 	if callCount != 2 {
 		t.Errorf("Expected 2 API calls, got %d", callCount)
@@ -372,7 +372,7 @@ func TestRPC_Error(t *testing.T) {
 
 	cfg := Config{
 		URL:     server.URL,
-		DB:      "testdb", 
+		DB:      "testdb",
 		User:    "testuser",
 		Pass:    "testpass",
 		Timeout: 5 * time.Second,
@@ -628,7 +628,7 @@ func TestUploadAttachment_Success(t *testing.T) {
 	if err != nil {
 		t.Errorf("UploadAttachment() should not fail: %v", err)
 	}
-	
+
 	if attachment.ID != 42 {
 		t.Errorf("Expected attachment ID 42, got %d", attachment.ID)
 	}
@@ -674,11 +674,11 @@ func TestGetTaskAttachments_Success(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetTaskAttachments() should not fail: %v", err)
 	}
-	
+
 	if len(attachments) != 2 {
 		t.Errorf("Expected 2 attachments, got %d", len(attachments))
 	}
-	
+
 	if attachments[0].Name != "doc1.pdf" {
 		t.Errorf("Expected first attachment name 'doc1.pdf', got %s", attachments[0].Name)
 	}
@@ -689,7 +689,7 @@ func TestReopenTask_TaskAlreadyOpen(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
-		
+
 		if callCount == 1 {
 			// First call: GetTask returns open task
 			response := map[string]any{
@@ -697,9 +697,9 @@ func TestReopenTask_TaskAlreadyOpen(t *testing.T) {
 				"id":      1,
 				"result": []map[string]any{
 					{
-						"id":        int64(123),
-						"name":      "Test Task",
-						"stage_id":  []any{int64(1), "New"},
+						"id":         int64(123),
+						"name":       "Test Task",
+						"stage_id":   []any{int64(1), "New"},
 						"partner_id": []any{int64(456), "Test Customer"},
 					},
 				},
@@ -741,7 +741,7 @@ func TestReopenTask_TaskAlreadyOpen(t *testing.T) {
 	if wasReopened {
 		t.Errorf("ReopenTask() should return false for already open task")
 	}
-	
+
 	if callCount != 2 {
 		t.Errorf("Expected 2 calls (GetTask + partnerEmailName), got %d", callCount)
 	}
@@ -752,7 +752,7 @@ func TestReopenTask_TaskClosed(t *testing.T) {
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
-		
+
 		if callCount == 1 {
 			// First call: GetTask returns closed task
 			response := map[string]any{
@@ -760,9 +760,9 @@ func TestReopenTask_TaskClosed(t *testing.T) {
 				"id":      1,
 				"result": []map[string]any{
 					{
-						"id":        int64(123),
-						"name":      "Test Task",
-						"stage_id":  []any{int64(5), "Done"},
+						"id":         int64(123),
+						"name":       "Test Task",
+						"stage_id":   []any{int64(5), "Done"},
 						"partner_id": []any{int64(456), "Test Customer"},
 					},
 				},
@@ -819,7 +819,7 @@ func TestReopenTask_TaskClosed(t *testing.T) {
 	if !wasReopened {
 		t.Errorf("ReopenTask() should return true for closed task")
 	}
-	
+
 	if callCount != 4 {
 		t.Errorf("Expected 4 calls (GetTask, partnerEmailName, SetTaskStage, message_post), got %d", callCount)
 	}
@@ -856,7 +856,7 @@ func TestReopenTask_GetTaskFails(t *testing.T) {
 	if wasReopened {
 		t.Error("ReopenTask() should return false when failing")
 	}
-	
+
 	if !strings.Contains(err.Error(), "failed to get task") {
 		t.Errorf("Expected 'failed to get task' error, got: %v", err)
 	}

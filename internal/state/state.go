@@ -132,12 +132,12 @@ func (s *Store) GetSlackMessage(taskID int64) (*SlackMessageInfo, error) {
 
 // SLAState tracks SLA timing for a task
 type SLAState struct {
-	TaskID         int64     `json:"task_id"`
-	CreatedAt      time.Time `json:"created_at"`
+	TaskID         int64      `json:"task_id"`
+	CreatedAt      time.Time  `json:"created_at"`
 	StartedAt      *time.Time `json:"started_at,omitempty"`
 	CompletedAt    *time.Time `json:"completed_at,omitempty"`
-	StartSLABreach bool      `json:"start_sla_breach"`
-	EndSLABreach   bool      `json:"end_sla_breach"`
+	StartSLABreach bool       `json:"start_sla_breach"`
+	EndSLABreach   bool       `json:"end_sla_breach"`
 }
 
 // StoreSLAState saves SLA state for a task

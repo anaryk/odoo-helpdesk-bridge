@@ -8,18 +8,18 @@ import (
 )
 
 type App struct {
-	PollSeconds     int      `yaml:"poll_seconds"`
-	StatePath       string   `yaml:"state_path"`
-	TicketPrefix    string   `yaml:"ticket_prefix"`
-	DoneStageIDs    []int64  `yaml:"done_stage_ids"`
-	ExcludedEmails  []string `yaml:"excluded_emails"`
-	Operators       []string `yaml:"operators"`
-	SLA             SLA      `yaml:"sla"`
-	Debug           bool     `yaml:"debug"`
+	PollSeconds    int      `yaml:"poll_seconds"`
+	StatePath      string   `yaml:"state_path"`
+	TicketPrefix   string   `yaml:"ticket_prefix"`
+	DoneStageIDs   []int64  `yaml:"done_stage_ids"`
+	ExcludedEmails []string `yaml:"excluded_emails"`
+	Operators      []string `yaml:"operators"`
+	SLA            SLA      `yaml:"sla"`
+	Debug          bool     `yaml:"debug"`
 }
 
 type SLA struct {
-	StartTimeHours     int `yaml:"start_time_hours"`     // Hours to start working on task
+	StartTimeHours      int `yaml:"start_time_hours"`      // Hours to start working on task
 	ResolutionTimeHours int `yaml:"resolution_time_hours"` // Hours to resolve task
 }
 
@@ -35,10 +35,10 @@ type Odoo struct {
 }
 
 type OdooStages struct {
-	New        int64 `yaml:"new"`        // Nové
-	Assigned   int64 `yaml:"assigned"`   // Přiřazeno
+	New        int64 `yaml:"new"`         // Nové
+	Assigned   int64 `yaml:"assigned"`    // Přiřazeno
 	InProgress int64 `yaml:"in_progress"` // Probíhá
-	Done       int64 `yaml:"done"`       // Hotovo
+	Done       int64 `yaml:"done"`        // Hotovo
 }
 
 type SlackCfg struct {

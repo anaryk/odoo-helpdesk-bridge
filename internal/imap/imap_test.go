@@ -94,13 +94,13 @@ Subject: Test`,
 			expected: "My response here.",
 		},
 		{
-			name: "Clean text without quotes",
-			input: "Just a simple message without quotes.",
+			name:     "Clean text without quotes",
+			input:    "Just a simple message without quotes.",
 			expected: "Just a simple message without quotes.",
 		},
 		{
-			name: "Empty input",
-			input: "",
+			name:     "Empty input",
+			input:    "",
 			expected: "",
 		},
 		{
@@ -180,17 +180,17 @@ Content-Transfer-Encoding: base64
 --boundary123--`
 
 	body, attachments := parseEmailContent(strings.NewReader(mimeContent))
-	
+
 	expectedBody := "This is the email body."
 	if strings.TrimSpace(body) != expectedBody {
 		t.Errorf("Expected body %q, got %q", expectedBody, strings.TrimSpace(body))
 	}
-	
+
 	if len(attachments) != 1 {
 		t.Errorf("Expected 1 attachment, got %d", len(attachments))
 		return
 	}
-	
+
 	att := attachments[0]
 	if att.Filename != "test.jpg" {
 		t.Errorf("Expected filename 'test.jpg', got %q", att.Filename)
@@ -231,12 +231,12 @@ Content-Transfer-Encoding: base64
 --boundary123--`
 
 	body, attachments := parseEmailContent(strings.NewReader(mimeContent))
-	
+
 	expectedBody := "Tohle je text emailu s problémem."
 	if strings.TrimSpace(body) != expectedBody {
 		t.Errorf("Expected body %q, got %q", expectedBody, strings.TrimSpace(body))
 	}
-	
+
 	if len(attachments) != 1 {
 		t.Errorf("Expected 1 attachment, got %d", len(attachments))
 		return
@@ -248,14 +248,14 @@ func TestParseEmailContent_PlainText(t *testing.T) {
 	plainContent := `Content-Type: text/plain
 
 Just plain text email without attachments`
-	
+
 	body, attachments := parseEmailContent(strings.NewReader(plainContent))
-	
+
 	expectedBody := "Just plain text email without attachments"
 	if strings.TrimSpace(body) != expectedBody {
 		t.Errorf("Expected body %q, got %q", expectedBody, strings.TrimSpace(body))
 	}
-	
+
 	if len(attachments) != 0 {
 		t.Errorf("Expected 0 attachments, got %d", len(attachments))
 	}
@@ -266,13 +266,13 @@ func TestGetExtensionForContentType(t *testing.T) {
 		contentType string
 		expected    string
 	}{
-		{"image/jpeg", ".jpe"},  // System returns .jpe, not .jpg
+		{"image/jpeg", ".jpe"}, // System returns .jpe, not .jpg
 		{"image/png", ".png"},
 		{"application/pdf", ".pdf"},
 		{"application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"},
 		{"unknown/type", ""},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.contentType, func(t *testing.T) {
 			result := getExtensionForContentType(tt.contentType)

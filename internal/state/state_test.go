@@ -10,15 +10,15 @@ func TestStore_EmailProcessing(t *testing.T) {
 	// Create temporary database file
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	
+
 	store, err := New(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
 	defer store.Close()
-	
+
 	emailID := "test-email-123"
-	
+
 	// Initially, email should not be processed
 	processed, err := store.IsProcessedEmail(emailID)
 	if err != nil {
@@ -27,13 +27,13 @@ func TestStore_EmailProcessing(t *testing.T) {
 	if processed {
 		t.Error("Email should not be processed initially")
 	}
-	
+
 	// Mark email as processed
 	err = store.MarkProcessedEmail(emailID)
 	if err != nil {
 		t.Fatalf("MarkProcessedEmail failed: %v", err)
 	}
-	
+
 	// Now email should be marked as processed
 	processed, err = store.IsProcessedEmail(emailID)
 	if err != nil {
@@ -47,27 +47,27 @@ func TestStore_EmailProcessing(t *testing.T) {
 func TestStore_OdooMessageTracking(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	
+
 	store, err := New(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
 	defer store.Close()
-	
+
 	messageID := int64(456)
-	
+
 	// Initially, message should not be sent
 	sent := store.IsOdooMessageSent(messageID)
 	if sent {
 		t.Error("Message should not be sent initially")
 	}
-	
+
 	// Mark message as sent
 	err = store.MarkOdooMessageSent(messageID)
 	if err != nil {
 		t.Fatalf("MarkOdooMessageSent failed: %v", err)
 	}
-	
+
 	// Now message should be marked as sent
 	sent = store.IsOdooMessageSent(messageID)
 	if !sent {
@@ -78,19 +78,19 @@ func TestStore_OdooMessageTracking(t *testing.T) {
 func TestStore_SlackMessageTracking(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	
+
 	store, err := New(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
 	defer store.Close()
-	
+
 	taskID := int64(789)
 	slackMsg := SlackMessageInfo{
 		Timestamp: "1234567890.123456",
 		Channel:   "C1234567890",
 	}
-	
+
 	// Initially, no Slack message should exist
 	retrievedMsg, err := store.GetSlackMessage(taskID)
 	if err != nil {
@@ -99,13 +99,13 @@ func TestStore_SlackMessageTracking(t *testing.T) {
 	if retrievedMsg != nil {
 		t.Error("No Slack message should exist initially")
 	}
-	
+
 	// Store Slack message
 	err = store.StoreSlackMessage(taskID, slackMsg)
 	if err != nil {
 		t.Fatalf("StoreSlackMessage failed: %v", err)
 	}
-	
+
 	// Retrieve and verify Slack message
 	retrievedMsg, err = store.GetSlackMessage(taskID)
 	if err != nil {
@@ -125,13 +125,13 @@ func TestStore_SlackMessageTracking(t *testing.T) {
 func TestStore_SLAStateTracking(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	
+
 	store, err := New(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
 	defer store.Close()
-	
+
 	taskID := int64(999)
 	now := time.Now()
 	slaState := SLAState{
@@ -140,7 +140,7 @@ func TestStore_SLAStateTracking(t *testing.T) {
 		StartSLABreach: false,
 		EndSLABreach:   false,
 	}
-	
+
 	// Initially, no SLA state should exist
 	retrievedState, err := store.GetSLAState(taskID)
 	if err != nil {
@@ -149,13 +149,13 @@ func TestStore_SLAStateTracking(t *testing.T) {
 	if retrievedState != nil {
 		t.Error("No SLA state should exist initially")
 	}
-	
+
 	// Store SLA state
 	err = store.StoreSLAState(slaState)
 	if err != nil {
 		t.Fatalf("StoreSLAState failed: %v", err)
 	}
-	
+
 	// Retrieve and verify SLA state
 	retrievedState, err = store.GetSLAState(taskID)
 	if err != nil {
@@ -175,26 +175,26 @@ func TestStore_SLAStateTracking(t *testing.T) {
 func TestStore_LastOdooMessageTime(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	
+
 	store, err := New(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
 	defer store.Close()
-	
+
 	// Initially, should return zero time
 	lastTime := store.GetLastOdooMessageTime()
 	if !lastTime.IsZero() {
 		t.Error("Last Odoo message time should be zero initially")
 	}
-	
+
 	// Set a time
 	testTime := time.Now().UTC().Truncate(time.Second)
 	err = store.SetLastOdooMessageTime(testTime)
 	if err != nil {
 		t.Fatalf("SetLastOdooMessageTime failed: %v", err)
 	}
-	
+
 	// Retrieve and verify
 	retrievedTime := store.GetLastOdooMessageTime()
 	if !retrievedTime.Equal(testTime) {
@@ -205,28 +205,28 @@ func TestStore_LastOdooMessageTime(t *testing.T) {
 func TestStore_Persistence(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
-	
+
 	// Create store and add some data
 	store, err := New(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	
+
 	emailID := "persistent-test"
 	err = store.MarkProcessedEmail(emailID)
 	if err != nil {
 		t.Fatalf("MarkProcessedEmail failed: %v", err)
 	}
-	
+
 	store.Close()
-	
+
 	// Reopen store and verify data persists
 	store2, err := New(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to reopen store: %v", err)
 	}
 	defer store2.Close()
-	
+
 	processed, err := store2.IsProcessedEmail(emailID)
 	if err != nil {
 		t.Fatalf("IsProcessedEmail failed: %v", err)

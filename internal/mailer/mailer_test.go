@@ -31,9 +31,9 @@ func TestNewSMTP(t *testing.T) {
 
 func TestSMTPConfig_Validation(t *testing.T) {
 	tests := []struct {
-		name   string
-		cfg    SMTPConfig
-		valid  bool
+		name  string
+		cfg   SMTPConfig
+		valid bool
 	}{
 		{
 			name: "Valid config with auth",
@@ -133,7 +133,7 @@ func TestSMTPClient_EmailFormat(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := NewSMTP(tt.cfg)
-			
+
 			// We can't actually test sending without a real SMTP server,
 			// but we can verify the client is configured correctly
 			if tt.cfg.FromName != "" {
@@ -146,7 +146,7 @@ func TestSMTPClient_EmailFormat(t *testing.T) {
 					t.Errorf("Expected from email %s, got %s", tt.expectedFrom, tt.cfg.FromEmail)
 				}
 			}
-			
+
 			// Test that client was created correctly
 			if client.cfg.FromEmail != tt.cfg.FromEmail {
 				t.Errorf("Client FromEmail not set correctly: got %s, want %s", client.cfg.FromEmail, tt.cfg.FromEmail)
@@ -177,7 +177,7 @@ func (m *MockSMTPClient) Send(to, subject, body string) error {
 	if m.ShouldFail {
 		return errors.New("mock smtp error")
 	}
-	
+
 	m.SentEmails = append(m.SentEmails, SentEmail{
 		To:      to,
 		Subject: subject,
@@ -188,17 +188,17 @@ func (m *MockSMTPClient) Send(to, subject, body string) error {
 
 func TestMockSMTPClient(t *testing.T) {
 	mock := NewMockSMTP()
-	
+
 	// Test successful send
 	err := mock.Send("test@example.com", "Test Subject", "Test Body")
 	if err != nil {
 		t.Errorf("Mock send should not fail: %v", err)
 	}
-	
+
 	if len(mock.SentEmails) != 1 {
 		t.Errorf("Expected 1 sent email, got %d", len(mock.SentEmails))
 	}
-	
+
 	email := mock.SentEmails[0]
 	if email.To != "test@example.com" {
 		t.Errorf("Expected to 'test@example.com', got '%s'", email.To)
@@ -209,14 +209,14 @@ func TestMockSMTPClient(t *testing.T) {
 	if email.Body != "Test Body" {
 		t.Errorf("Expected body 'Test Body', got '%s'", email.Body)
 	}
-	
+
 	// Test failure
 	mock.ShouldFail = true
 	err = mock.Send("test2@example.com", "Test Subject 2", "Test Body 2")
 	if err == nil {
 		t.Error("Mock should fail when ShouldFail is true")
 	}
-	
+
 	// Should not add failed email
 	if len(mock.SentEmails) != 1 {
 		t.Errorf("Expected still 1 sent email after failure, got %d", len(mock.SentEmails))
@@ -249,8 +249,8 @@ func TestItoa(t *testing.T) {
 
 func TestSMTPClient_AddressFormatting(t *testing.T) {
 	tests := []struct {
-		name     string
-		fromName string
+		name      string
+		fromName  string
 		fromEmail string
 		expected  string
 	}{
@@ -263,7 +263,7 @@ func TestSMTPClient_AddressFormatting(t *testing.T) {
 		{
 			name:      "Name with special characters",
 			fromName:  "Support & Help",
-			fromEmail: "support@example.com", 
+			fromEmail: "support@example.com",
 			expected:  "Support & Help <support@example.com>",
 		},
 		{
@@ -288,9 +288,9 @@ func TestSMTPClient_AddressFormatting(t *testing.T) {
 				FromName:  tt.fromName,
 				FromEmail: tt.fromEmail,
 			}
-			
+
 			client := NewSMTP(cfg)
-			
+
 			// Simulate the from address formatting logic
 			var expectedFrom string
 			if tt.fromName != "" {
@@ -298,11 +298,11 @@ func TestSMTPClient_AddressFormatting(t *testing.T) {
 			} else {
 				expectedFrom = tt.fromEmail
 			}
-			
+
 			if expectedFrom != tt.expected {
 				t.Errorf("Expected from address '%s', got '%s'", tt.expected, expectedFrom)
 			}
-			
+
 			// Verify client configuration
 			if client.cfg.FromName != tt.fromName {
 				t.Errorf("FromName not preserved: got '%s', want '%s'", client.cfg.FromName, tt.fromName)
@@ -323,7 +323,7 @@ func TestSendWithAttachments_Success(t *testing.T) {
 			Data:        []byte("PDF content"),
 		},
 		{
-			Filename:    "image.jpg", 
+			Filename:    "image.jpg",
 			ContentType: "image/jpeg",
 			Data:        []byte("JPEG data"),
 		},
@@ -331,23 +331,23 @@ func TestSendWithAttachments_Success(t *testing.T) {
 
 	// Create SMTP client for testing structure only (no real connection)
 	cfg := SMTPConfig{
-		Host:      "nonexistent.smtp.server",  // Intentionally invalid
+		Host:      "nonexistent.smtp.server", // Intentionally invalid
 		Port:      587,
 		Username:  "test@test.com",
 		Password:  "password",
 		FromName:  "Test",
 		FromEmail: "test@test.com",
-		Timeout:   1 * time.Second,  // Short timeout
+		Timeout:   1 * time.Second, // Short timeout
 	}
 	client := NewSMTP(cfg)
-	
+
 	// This will fail but shouldn't panic - we're testing the method exists and handles attachments
 	err := client.SendWithAttachments("recipient@test.com", "Test Subject", "Test Body", attachments)
 	// We expect this to fail since we're using a nonexistent server
 	if err == nil {
 		t.Error("Expected error with nonexistent SMTP server")
 	}
-	
+
 	// Test with empty attachments - should also fail with same server but not panic
 	err = client.SendWithAttachments("recipient@test.com", "Test Subject", "Test Body", nil)
 	if err == nil {
@@ -358,10 +358,10 @@ func TestSendWithAttachments_Success(t *testing.T) {
 func TestAttachment_Structure(t *testing.T) {
 	att := Attachment{
 		Filename:    "document.pdf",
-		ContentType: "application/pdf", 
+		ContentType: "application/pdf",
 		Data:        []byte("test data"),
 	}
-	
+
 	if att.Filename != "document.pdf" {
 		t.Errorf("Expected filename 'document.pdf', got %s", att.Filename)
 	}

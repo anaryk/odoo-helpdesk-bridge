@@ -15,24 +15,24 @@ type Config struct {
 }
 
 type Client struct {
-	webhook   string
-	botToken  string
-	channelID string
+	webhook    string
+	botToken   string
+	channelID  string
 	httpClient *http.Client
 }
 
-func New(url string) *Client { 
+func New(url string) *Client {
 	return &Client{
-		webhook: url,
+		webhook:    url,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
-	} 
+	}
 }
 
 func NewWithConfig(cfg Config) *Client {
 	return &Client{
-		webhook:   cfg.WebhookURL,
-		botToken:  cfg.BotToken,
-		channelID: cfg.ChannelID,
+		webhook:    cfg.WebhookURL,
+		botToken:   cfg.BotToken,
+		channelID:  cfg.ChannelID,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
@@ -49,7 +49,7 @@ func (c *Client) NotifyNewTask(taskID int, title, url, body, assignedOperator st
 	if c.botToken != "" && c.channelID != "" {
 		return c.postNewTaskWithBot(taskID, title, url, body, assignedOperator)
 	}
-	
+
 	// Fallback to webhook (no threading support)
 	err := c.postNewTaskWebhook(taskID, title, url, body, assignedOperator)
 	return nil, err
@@ -61,10 +61,10 @@ func (c *Client) postNewTaskWithBot(taskID int, title, url, body, assignedOperat
 	if len(body) > 300 {
 		truncatedBody = body[:300] + "..."
 	}
-	
+
 	// Format timestamp
 	timestamp := time.Now().Format("02.01.2006 15:04")
-	
+
 	blocks := []any{
 		section("<!channel> :rotating_light: *Nový support task*"),
 		section("*Task:* " + title),
@@ -74,13 +74,13 @@ func (c *Client) postNewTaskWithBot(taskID int, title, url, body, assignedOperat
 		section("*Vytvořeno:* " + timestamp),
 		section("<" + url + "|:point_right: Otevřít v Odoo>"),
 	}
-	
+
 	payload := map[string]any{
 		"channel": c.channelID,
 		"text":    "<!channel> :rotating_light: *Nový support task*",
 		"blocks":  blocks,
 	}
-	
+
 	return c.callSlackAPI("chat.postMessage", payload)
 }
 
@@ -88,16 +88,16 @@ func (c *Client) postNewTaskWebhook(taskID int, title, url, body, assignedOperat
 	if c.webhook == "" {
 		return nil
 	}
-	
+
 	// Truncate body to first 300 chars for readability
 	truncatedBody := body
 	if len(body) > 300 {
 		truncatedBody = body[:300] + "..."
 	}
-	
+
 	// Format timestamp
 	timestamp := time.Now().Format("02.01.2006 15:04")
-	
+
 	payload := map[string]any{
 		"text": "<!channel> :rotating_light: *Nový support task*",
 		"blocks": []any{
@@ -126,13 +126,13 @@ func (c *Client) NotifyTaskAssigned(parentMsg *SlackMessage, taskID int, assigne
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
-	
+
 	payload := map[string]any{
-		"channel":    c.channelID,  // Use configured channel ID instead of stored one
-		"thread_ts":  parentMsg.Timestamp,
-		"text":       fmt.Sprintf(":male-technologist: Task #%d byl automaticky přiřazen operátorovi *%s*", taskID, assigneeName),
+		"channel":   c.channelID, // Use configured channel ID instead of stored one
+		"thread_ts": parentMsg.Timestamp,
+		"text":      fmt.Sprintf(":male-technologist: Task #%d byl automaticky přiřazen operátorovi *%s*", taskID, assigneeName),
 	}
-	
+
 	_, err := c.callSlackAPI("chat.postMessage", payload)
 	return err
 }
@@ -142,13 +142,13 @@ func (c *Client) NotifyTaskCompleted(parentMsg *SlackMessage, taskID int, title 
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
-	
+
 	payload := map[string]any{
-		"channel":    c.channelID,  // Use configured channel ID instead of stored one
-		"thread_ts":  parentMsg.Timestamp,
-		"text":       fmt.Sprintf(":heavy_check_mark: Task #%d *%s* byl úspěšně dokončen a uzavřen", taskID, title),
+		"channel":   c.channelID, // Use configured channel ID instead of stored one
+		"thread_ts": parentMsg.Timestamp,
+		"text":      fmt.Sprintf(":heavy_check_mark: Task #%d *%s* byl úspěšně dokončen a uzavřen", taskID, title),
 	}
-	
+
 	_, err := c.callSlackAPI("chat.postMessage", payload)
 	return err
 }
@@ -158,20 +158,20 @@ func (c *Client) NotifyTaskReopened(parentMsg *SlackMessage, taskID int, title s
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
-	
+
 	var text string
 	if assigneeName != "" {
 		text = fmt.Sprintf(":arrows_counterclockwise: Task #%d *%s* byl znovu otevřen zákazníkem a přiřazen operátorovi *%s*", taskID, title, assigneeName)
 	} else {
 		text = fmt.Sprintf(":arrows_counterclockwise: Task #%d *%s* byl znovu otevřen zákazníkem", taskID, title)
 	}
-	
+
 	payload := map[string]any{
-		"channel":    c.channelID,
-		"thread_ts":  parentMsg.Timestamp,
-		"text":       text,
+		"channel":   c.channelID,
+		"thread_ts": parentMsg.Timestamp,
+		"text":      text,
 	}
-	
+
 	_, err := c.callSlackAPI("chat.postMessage", payload)
 	return err
 }
@@ -181,16 +181,16 @@ func (c *Client) UpdateTaskStatusCompleted(parentMsg *SlackMessage, taskID int, 
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
-	
+
 	// Update original message with completed status
 	text := fmt.Sprintf(":heavy_check_mark: *Dokončeno* | Task #%d: *%s*\n:link: <%s|Otevřít v Odoo>\n:male-technologist: Operátor: *%s*", taskID, title, url, assignedOperator)
-	
+
 	payload := map[string]any{
 		"channel": c.channelID,
 		"ts":      parentMsg.Timestamp,
 		"text":    text,
 	}
-	
+
 	_, err := c.callSlackAPI("chat.update", payload)
 	return err
 }
@@ -200,16 +200,16 @@ func (c *Client) UpdateTaskStatusReopened(parentMsg *SlackMessage, taskID int, t
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
-	
+
 	// Update original message with reopened status
 	text := fmt.Sprintf(":warning: *Znovu otevřeno* | Task #%d: *%s*\n:link: <%s|Otevřít v Odoo>\n:male-technologist: Operátor: *%s*", taskID, title, url, assignedOperator)
-	
+
 	payload := map[string]any{
 		"channel": c.channelID,
 		"ts":      parentMsg.Timestamp,
 		"text":    text,
 	}
-	
+
 	_, err := c.callSlackAPI("chat.update", payload)
 	return err
 }
@@ -219,7 +219,7 @@ func (c *Client) NotifySLAViolation(parentMsg *SlackMessage, taskID int, title s
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
-	
+
 	var message string
 	switch violationType {
 	case "start_time":
@@ -229,13 +229,13 @@ func (c *Client) NotifySLAViolation(parentMsg *SlackMessage, taskID int, title s
 	default:
 		message = fmt.Sprintf("<!channel> :warning: *SLA PORUŠENÍ* - Task #%d *%s*", taskID, title)
 	}
-	
+
 	payload := map[string]any{
-		"channel":    c.channelID,  // Use configured channel ID instead of stored one
-		"thread_ts":  parentMsg.Timestamp,
-		"text":       message,
+		"channel":   c.channelID, // Use configured channel ID instead of stored one
+		"thread_ts": parentMsg.Timestamp,
+		"text":      message,
 	}
-	
+
 	_, err := c.callSlackAPI("chat.postMessage", payload)
 	return err
 }
@@ -245,27 +245,27 @@ func (c *Client) callSlackAPI(method string, payload map[string]any) (*SlackMess
 	req, _ := http.NewRequest("POST", "https://slack.com/api/"+method, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.botToken)
-	
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	
+
 	var result struct {
 		OK      bool         `json:"ok"`
 		Error   string       `json:"error,omitempty"`
 		Message SlackMessage `json:"message,omitempty"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
-	
+
 	if !result.OK {
 		return nil, fmt.Errorf("slack API error: %s", result.Error)
 	}
-	
+
 	return &result.Message, nil
 }
 
