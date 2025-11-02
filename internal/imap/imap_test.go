@@ -263,31 +263,27 @@ Just plain text email without attachments`
 
 func TestGetExtensionForContentType(t *testing.T) {
 	tests := []struct {
-		contentType   string
-		expectedOneOf []string // Multiple acceptable extensions
+		contentType string
+		expected    string
 	}{
-		{"image/jpeg", []string{".jpeg", ".jpg", ".jpe"}}, // Different systems may return different extensions
-		{"image/png", []string{".png"}},
-		{"application/pdf", []string{".pdf"}},
-		{"application/vnd.openxmlformats-officedocument.wordprocessingml.document", []string{".docx"}},
-		{"unknown/type", []string{""}},
+		{"image/jpeg", ".jpg"},
+		{"image/png", ".png"},
+		{"application/pdf", ".pdf"},
+		{"application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"},
+		{"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"},
+		{"application/msword", ".doc"},
+		{"text/plain", ".txt"},
+		{"text/html", ".html"},
+		{"image/gif", ".gif"},
+		{"unknown/type", ""},
+		{"", ""}, // empty content type
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.contentType, func(t *testing.T) {
 			result := getExtensionForContentType(tt.contentType)
-
-			// Check if result is one of the expected values
-			found := false
-			for _, expected := range tt.expectedOneOf {
-				if result == expected {
-					found = true
-					break
-				}
-			}
-
-			if !found {
-				t.Errorf("getExtensionForContentType(%q) = %q, want one of %v", tt.contentType, result, tt.expectedOneOf)
+			if result != tt.expected {
+				t.Errorf("getExtensionForContentType(%q) = %q, want %q", tt.contentType, result, tt.expected)
 			}
 		})
 	}

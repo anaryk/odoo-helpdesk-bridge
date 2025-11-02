@@ -712,12 +712,37 @@ func getContentDisposition(header message.Header) (string, map[string]string) {
 
 // getExtensionForContentType returns file extension for common content types
 func getExtensionForContentType(contentType string) string {
-	ext, err := mime.ExtensionsByType(contentType)
-	if err == nil && len(ext) > 0 {
-		return ext[0]
+	// Use predefined mapping to ensure consistent results across systems
+	switch contentType {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "application/pdf":
+		return ".pdf"
+	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		return ".docx"
+	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+		return ".xlsx"
+	case "application/msword":
+		return ".doc"
+	case "application/vnd.ms-excel":
+		return ".xls"
+	case "text/plain":
+		return ".txt"
+	case "text/html":
+		return ".html"
+	case "application/zip":
+		return ".zip"
+	case "image/gif":
+		return ".gif"
+	case "image/bmp":
+		return ".bmp"
+	case "image/tiff":
+		return ".tiff"
 	}
 
-	// Fallback for common types
+	// Fallback for partial matches
 	switch {
 	case strings.Contains(contentType, "jpeg"), strings.Contains(contentType, "jpg"):
 		return ".jpg"
@@ -729,6 +754,10 @@ func getExtensionForContentType(contentType string) string {
 		return ".docx"
 	case strings.Contains(contentType, "excel"):
 		return ".xlsx"
+	case strings.Contains(contentType, "image/"):
+		return ".bin" // generic image if we don't know specific format
+	case strings.Contains(contentType, "text/"):
+		return ".txt"
 	}
 	return ""
 }
