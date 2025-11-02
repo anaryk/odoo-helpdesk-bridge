@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"mime/quotedprintable"
 	"net"
 	"net/textproto"
 	"regexp"
@@ -336,6 +337,52 @@ func itoaU(v uint32) string {
 	return fmt.Sprintf("%d", v)
 }
 
+// decodeTextContent decodes text content based on Content-Transfer-Encoding and charset
+func decodeTextContent(data []byte, encoding string, charset string) string {
+	// First decode the transfer encoding
+	var decoded []byte
+	switch strings.ToLower(encoding) {
+	case "quoted-printable":
+		reader := quotedprintable.NewReader(strings.NewReader(string(data)))
+		decoded, _ = io.ReadAll(reader)
+	case "base64":
+		decoded, _ = base64.StdEncoding.DecodeString(string(data))
+	default:
+		decoded = data
+	}
+
+	// Convert from charset to UTF-8 if needed
+	text := string(decoded)
+
+	// Handle common charset encodings
+	switch strings.ToLower(charset) {
+	case "iso-8859-2", "windows-1252":
+		// For Czech/European charsets, try to decode common characters
+		text = strings.ReplaceAll(text, "=FD", "ý")
+		text = strings.ReplaceAll(text, "=E1", "á")
+		text = strings.ReplaceAll(text, "=ED", "í")
+		text = strings.ReplaceAll(text, "=E9", "é")
+		text = strings.ReplaceAll(text, "=F9", "ů")
+		text = strings.ReplaceAll(text, "=E8", "č")
+		text = strings.ReplaceAll(text, "=F8", "ř")
+		text = strings.ReplaceAll(text, "=9E", "ž")
+		text = strings.ReplaceAll(text, "=BE", "ž")
+		text = strings.ReplaceAll(text, "=9A", "š")
+
+		// More systematic approach for remaining equals signs
+		if strings.Contains(text, "=") {
+			// Try to parse as quoted-printable if we still have = signs
+			if qpReader := quotedprintable.NewReader(strings.NewReader(text)); qpReader != nil {
+				if decoded2, err := io.ReadAll(qpReader); err == nil {
+					text = string(decoded2)
+				}
+			}
+		}
+	}
+
+	return strings.TrimSpace(text)
+}
+
 // extractBodyFromRawEmail extracts body content from raw email text by skipping headers
 func extractBodyFromRawEmail(rawEmail string) string {
 	lines := strings.Split(rawEmail, "\n")
@@ -358,8 +405,70 @@ func extractBodyFromRawEmail(rawEmail string) string {
 	body := strings.Join(bodyLines, "\n")
 	body = strings.TrimSpace(body)
 
+	// Try to extract text from multipart content
+	if strings.Contains(body, "Content-Type: text/plain") {
+		extractedText := extractTextFromMultipart(body)
+		if extractedText != "" {
+			body = extractedText
+		}
+	}
+
 	log.Debug().Int("body_length", len(body)).Msg("extracted body from raw email")
 	return body
+}
+
+// extractTextFromMultipart extracts text content from multipart email body
+func extractTextFromMultipart(multipartBody string) string {
+	lines := strings.Split(multipartBody, "\n")
+	var textContent []string
+	inTextSection := false
+	isQuotedPrintable := false
+
+	for _, line := range lines {
+		line = strings.TrimRight(line, "\r")
+
+		// Check for text/plain content type
+		if strings.Contains(line, "Content-Type: text/plain") {
+			inTextSection = true
+			continue
+		}
+
+		// Check for quoted-printable encoding
+		if strings.Contains(line, "Content-Transfer-Encoding: quoted-printable") {
+			isQuotedPrintable = true
+			continue
+		}
+
+		// Check for boundary or next content type (end of text section)
+		if inTextSection && (strings.HasPrefix(line, "--") || strings.Contains(line, "Content-Type:")) {
+			break
+		}
+
+		// Skip empty lines after headers
+		if inTextSection && strings.TrimSpace(line) == "" && len(textContent) == 0 {
+			continue
+		}
+
+		// Collect text content
+		if inTextSection {
+			textContent = append(textContent, line)
+		}
+	}
+
+	if len(textContent) == 0 {
+		return ""
+	}
+
+	text := strings.Join(textContent, "\n")
+	text = strings.TrimSpace(text)
+
+	// Decode quoted-printable if needed
+	if isQuotedPrintable {
+		text = decodeTextContent([]byte(text), "quoted-printable", "")
+	}
+
+	log.Debug().Int("extracted_multipart_length", len(text)).Bool("was_quoted_printable", isQuotedPrintable).Msg("extracted text from multipart")
+	return text
 }
 
 // parseEmailContent parses email content and extracts both body text and attachments
@@ -446,6 +555,14 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 
 	// Process collected parts
 	log.Debug().Int("total_parts", len(parts)).Msg("processing multipart email parts")
+
+	// If no parts found, fall back to raw email parsing
+	if len(parts) == 0 {
+		log.Debug().Msg("no multipart parts found, falling back to raw email parsing")
+		body := extractBodyFromRawEmail(string(data))
+		return body, nil
+	}
+
 	for i, part := range parts {
 		ct, params, _ := part.header.ContentType()
 		disposition, dispParams := getContentDisposition(part.header)
@@ -507,12 +624,29 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 				contentType = ct
 			}
 
-			mimeMessage := "Content-Type: " + contentType + "\r\n\r\n" + string(part.body)
+			// Handle charset issues in the multipart body
+			multipartBody := string(part.body)
+			multipartBody = strings.ReplaceAll(multipartBody, "charset=\"iso-8859-2\"", "charset=\"utf-8\"")
+			multipartBody = strings.ReplaceAll(multipartBody, "charset=iso-8859-2", "charset=utf-8")
+			multipartBody = strings.ReplaceAll(multipartBody, "charset=\"windows-1252\"", "charset=\"utf-8\"")
+			multipartBody = strings.ReplaceAll(multipartBody, "charset=windows-1252", "charset=utf-8")
+
+			mimeMessage := "Content-Type: " + contentType + "\r\n\r\n" + multipartBody
+
+			// Try our multipart parser first, then fallback to message.Read
+			if bodyText == "" {
+				extractedText := extractTextFromMultipart(multipartBody)
+				if extractedText != "" {
+					bodyText = extractedText
+					log.Debug().Int("direct_extracted_length", len(bodyText)).Msg("extracted text directly using multipart parser")
+					continue
+				}
+			}
 
 			// Parse as complete message
 			nestedMsg, err := message.Read(strings.NewReader(mimeMessage))
 			if err != nil {
-				log.Debug().Err(err).Msg("failed to parse nested multipart")
+				log.Debug().Err(err).Msg("failed to parse nested multipart, skipping")
 				continue
 			}
 
@@ -590,12 +724,16 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 						log.Debug().Str("filename", nestedFilename).Str("content_type", nestedCt).Int("size", len(nestedData)).Msg("added nested attachment")
 					} else if strings.HasPrefix(nestedCt, "text/") && bodyText == "" {
 						// Text content for body
+						nestedEncoding := nestedPart.Header.Get("Content-Transfer-Encoding")
+						nestedCharset := nestedParams["charset"]
+
 						if strings.HasPrefix(nestedCt, "text/plain") {
-							bodyText = string(nestedBody)
-							log.Debug().Int("extracted_nested_text_length", len(bodyText)).Msg("extracted text from nested plain part")
+							bodyText = decodeTextContent(nestedBody, nestedEncoding, nestedCharset)
+							log.Debug().Int("extracted_nested_text_length", len(bodyText)).Str("encoding", nestedEncoding).Str("charset", nestedCharset).Msg("extracted text from nested plain part")
 						} else if strings.HasPrefix(nestedCt, "text/html") {
-							bodyText = htmlToText(string(nestedBody))
-							log.Debug().Int("extracted_nested_text_length", len(bodyText)).Msg("extracted text from nested HTML part")
+							decodedHTML := decodeTextContent(nestedBody, nestedEncoding, nestedCharset)
+							bodyText = htmlToText(decodedHTML)
+							log.Debug().Int("extracted_nested_text_length", len(bodyText)).Str("encoding", nestedEncoding).Str("charset", nestedCharset).Msg("extracted text from nested HTML part")
 						}
 					}
 				}
@@ -676,12 +814,16 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 				log.Debug().Str("filename", filename).Str("content_type", ct).Int("size", len(data)).Msg("added attachment")
 			} else if strings.HasPrefix(ct, "text/") && bodyText == "" {
 				// This is text content for body
+				encoding := part.header.Get("Content-Transfer-Encoding")
+				charset := params["charset"]
+
 				if strings.HasPrefix(ct, "text/plain") {
-					bodyText = string(part.body)
-					log.Debug().Int("extracted_text_length", len(bodyText)).Msg("extracted text from plain part")
+					bodyText = decodeTextContent(part.body, encoding, charset)
+					log.Debug().Int("extracted_text_length", len(bodyText)).Str("encoding", encoding).Str("charset", charset).Msg("extracted text from plain part")
 				} else if strings.HasPrefix(ct, "text/html") {
-					bodyText = htmlToText(string(part.body))
-					log.Debug().Int("extracted_text_length", len(bodyText)).Msg("extracted text from HTML part")
+					decodedHTML := decodeTextContent(part.body, encoding, charset)
+					bodyText = htmlToText(decodedHTML)
+					log.Debug().Int("extracted_text_length", len(bodyText)).Str("encoding", encoding).Str("charset", charset).Msg("extracted text from HTML part")
 				}
 			} else {
 				log.Debug().Str("content_type", ct).Str("disposition", disposition).Bool("is_attachment", isAttachment).Msg("part not processed as attachment or text")
