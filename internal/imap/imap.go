@@ -235,61 +235,6 @@ func (cl *Client) MarkSeen(ctx context.Context, uid uint32) error {
 
 // --- helpers ---
 
-func bestBody(r io.Reader) string {
-	// Parse MIME and prefer text/plain, fallback to HTML (stripped)
-	mr, err := message.Read(r)
-	if err != nil {
-		// maybe it's a simple mail
-		b, _ := io.ReadAll(r)
-		return string(b)
-	}
-	mt, ps, _ := mr.Header.ContentType()
-	if strings.HasPrefix(mt, "multipart/") {
-		mpr := mr.MultipartReader()
-		for {
-			p, e := mpr.NextPart()
-			if e == io.EOF {
-				break
-			}
-			if e != nil {
-				break
-			}
-			ct, _, _ := p.Header.ContentType()
-			if strings.HasPrefix(ct, "text/plain") {
-				b, _ := io.ReadAll(p.Body)
-				return string(b)
-			}
-		}
-		// second pass: html
-		mpr2 := mr.MultipartReader()
-		for {
-			p, e := mpr2.NextPart()
-			if e == io.EOF {
-				break
-			}
-			if e != nil {
-				break
-			}
-			ct, _, _ := p.Header.ContentType()
-			if strings.HasPrefix(ct, "text/html") {
-				b, _ := io.ReadAll(p.Body)
-				return htmlToText(string(b))
-			}
-		}
-		return ""
-	}
-	if strings.HasPrefix(mt, "text/plain") {
-		b, _ := io.ReadAll(mr.Body)
-		return string(b)
-	}
-	if strings.HasPrefix(mt, "text/html") {
-		b, _ := io.ReadAll(mr.Body)
-		return htmlToText(string(b))
-	}
-	_ = ps
-	return ""
-}
-
 func htmlToText(s string) string {
 	// Simple HTML tag removal with basic line break handling
 	s = strings.ReplaceAll(s, "<p>", "")
