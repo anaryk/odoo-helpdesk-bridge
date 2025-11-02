@@ -13,13 +13,11 @@ COPY go.mod go.sum ./
 # Download dependencies
 RUN go mod download
 
-# Copy source code
-COPY cmd/ ./cmd/
-COPY internal/ ./internal/
-COPY templates/ ./templates/
+# Copy source code - copy everything except what's in .dockerignore
+COPY . .
 
 # Build the application
-RUN go build -o helpdesk-bridge ./cmd/helpdesk-bridge
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o helpdesk-bridge ./cmd/helpdesk-bridge
 
 # Runtime stage
 FROM alpine:latest
