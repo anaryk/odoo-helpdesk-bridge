@@ -3,10 +3,9 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ "main", "feat/**", "feature/**", "bugfix/**", "hotfix/**" ]
+    tags: [ "v*" ]  # Trigger on version tags
   pull_request:
     branches: [ "main" ]
-  release:
-    types: [ published ]
 
 env:
   REGISTRY: ghcr.io
@@ -185,9 +184,12 @@ jobs:
           CHANGELOG=$(git log --oneline --pretty=format:"* %s")
         fi
         
+        # Get current tag name
+        CURRENT_TAG=${GITHUB_REF#refs/tags/}
+        
         # Create changelog content
         cat > CHANGELOG.md << EOF
-        # Changes in ${{ github.event.release.tag_name }}
+        # Changes in ${CURRENT_TAG}
         
         ${CHANGELOG}
         
@@ -195,7 +197,7 @@ jobs:
         
         Pull the Docker image:
         \`\`\`bash
-        docker pull ghcr.io/${{ github.repository }}:${{ github.event.release.tag_name }}
+        docker pull ghcr.io/${{ github.repository }}:${CURRENT_TAG}
         \`\`\`
         
         Or use latest:
@@ -210,7 +212,7 @@ jobs:
         1. Create config file based on \`config.yaml.example\`
         2. Run the container:
         \`\`\`bash
-        docker run -v ./config.yaml:/app/config/config.yaml -v ./data:/app/data ghcr.io/${{ github.repository }}:${{ github.event.release.tag_name }}
+        docker run -v ./config.yaml:/app/config/config.yaml -v ./data:/app/data ghcr.io/${{ github.repository }}:${CURRENT_TAG}
         \`\`\`
         
         ### From Source
