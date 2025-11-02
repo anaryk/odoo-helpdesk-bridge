@@ -14,7 +14,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source code
-COPY . .
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+COPY templates/ ./templates/
 
 # Build the application
 RUN go build -o helpdesk-bridge ./cmd/helpdesk-bridge
