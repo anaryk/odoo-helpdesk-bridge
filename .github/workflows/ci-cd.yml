@@ -56,7 +56,11 @@ jobs:
       run: golangci-lint run
       
     - name: Check for memory leaks
-      run: go test -memprofile=mem.prof -v ./...
+      run: |
+        # Run memory profile on main package only
+        go test -memprofile=mem.prof -v ./cmd/helpdesk-bridge
+        # Run regular tests on all other packages
+        go test -v ./internal/...
       
     - name: Security scan with govulncheck
       run: |
