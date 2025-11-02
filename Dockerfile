@@ -37,10 +37,6 @@ COPY --from=builder /app/helpdesk-bridge .
 # Copy templates directory
 COPY templates/ ./templates/
 
-# Create config directory and sample config
-RUN mkdir -p /app/config
-COPY config.yaml ./config/config.yaml.example
-
 # Change ownership to app user
 RUN chown -R appuser:appgroup /app
 
