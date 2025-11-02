@@ -263,8 +263,8 @@ Just plain text email without attachments`
 
 func TestGetExtensionForContentType(t *testing.T) {
 	tests := []struct {
-		contentType    string
-		expectedOneOf  []string // Multiple acceptable extensions
+		contentType   string
+		expectedOneOf []string // Multiple acceptable extensions
 	}{
 		{"image/jpeg", []string{".jpeg", ".jpg", ".jpe"}}, // Different systems may return different extensions
 		{"image/png", []string{".png"}},
@@ -276,7 +276,7 @@ func TestGetExtensionForContentType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.contentType, func(t *testing.T) {
 			result := getExtensionForContentType(tt.contentType)
-			
+
 			// Check if result is one of the expected values
 			found := false
 			for _, expected := range tt.expectedOneOf {
@@ -285,7 +285,7 @@ func TestGetExtensionForContentType(t *testing.T) {
 					break
 				}
 			}
-			
+
 			if !found {
 				t.Errorf("getExtensionForContentType(%q) = %q, want one of %v", tt.contentType, result, tt.expectedOneOf)
 			}
