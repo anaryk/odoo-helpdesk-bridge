@@ -1,0 +1,16 @@
+Dobrý den {{ .CustomerName }},
+
+děkujeme za váš e-mail. Založili jsme požadavek číslo {{ .TaskID }}.
+
+Popis:
+{{ .OriginalBody }}
+
+Informace o zpracování:
+• Obvykle začínáme řešit během {{ .SLAStartHours }} hodin
+• V průměru řešíme požadavky během {{ .SLAResolutionHours }} hodin
+• Při dalších dotazech odpovězte na tento e-mail
+
+Ozveme se co nejdříve.
+
+S pozdravem,
+Maximal Limit Support

@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  helpdesk-bridge:
+    build: .
+    container_name: odoo-helpdesk-bridge
+    restart: unless-stopped
+    volumes:
+      - ./config.yaml:/app/config/config.yaml:ro
+      - ./data:/app/data
+      - ./templates:/app/templates:ro
+    environment:
+      - TZ=Europe/Prague
+    networks:
+      - helpdesk-network
+    # Uncomment if you want to expose health check endpoint
+    # ports:
+    #   - "8080:8080"
+    
+  # Optional: Add a monitoring solution
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: prometheus
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #   ports:
+  #     - "9090:9090"
+  #   networks:
+  #     - helpdesk-network
+
+networks:
+  helpdesk-network:
+    driver: bridge
+
+volumes:
+  helpdesk-data:
+    driver: local
