@@ -13,13 +13,10 @@ COPY go.mod go.sum ./
 # Download dependencies
 RUN go mod download
 
-# Copy source code - copy everything except what's in .dockerignore
-COPY . .
-
-# Debug: List what was copied
-RUN echo "=== Root directory contents ===" && ls -la
-RUN echo "=== Checking cmd directory ===" && ls -la cmd/ || echo "cmd directory not found"
-RUN echo "=== Checking cmd/helpdesk-bridge directory ===" && ls -la cmd/helpdesk-bridge/ || echo "cmd/helpdesk-bridge directory not found"
+# Copy source code explicitly
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+COPY templates/ ./templates/
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o helpdesk-bridge ./cmd/helpdesk-bridge
