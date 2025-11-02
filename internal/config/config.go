@@ -1,12 +1,16 @@
+// Package config provides configuration management for the odoo-helpdesk-bridge application.
 package config
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
+// App holds application-specific configuration settings.
 type App struct {
 	PollSeconds    int      `yaml:"poll_seconds"`
 	StatePath      string   `yaml:"state_path"`
@@ -18,11 +22,13 @@ type App struct {
 	Debug          bool     `yaml:"debug"`
 }
 
+// SLA holds Service Level Agreement configuration settings.
 type SLA struct {
 	StartTimeHours      int `yaml:"start_time_hours"`      // Hours to start working on task
 	ResolutionTimeHours int `yaml:"resolution_time_hours"` // Hours to resolve task
 }
 
+// Odoo holds Odoo ERP system configuration settings.
 type Odoo struct {
 	URL            string     `yaml:"url"`
 	DB             string     `yaml:"db"`
@@ -34,6 +40,7 @@ type Odoo struct {
 	Stages         OdooStages `yaml:"stages"`
 }
 
+// OdooStages defines the stage IDs used in Odoo project management.
 type OdooStages struct {
 	New        int64 `yaml:"new"`         // Nové
 	Assigned   int64 `yaml:"assigned"`    // Přiřazeno
@@ -41,12 +48,14 @@ type OdooStages struct {
 	Done       int64 `yaml:"done"`        // Hotovo
 }
 
+// SlackCfg holds Slack integration configuration settings.
 type SlackCfg struct {
 	WebhookURL string `yaml:"webhook_url"`
 	BotToken   string `yaml:"bot_token"`
 	ChannelID  string `yaml:"channel_id"`
 }
 
+// IMAPCfg holds IMAP email server configuration settings.
 type IMAPCfg struct {
 	Host                string `yaml:"host"`
 	Port                int    `yaml:"port"`
@@ -57,6 +66,7 @@ type IMAPCfg struct {
 	CustomProcessedFlag string `yaml:"custom_processed_flag"`
 }
 
+// SMTPCfg holds SMTP email server configuration settings.
 type SMTPCfg struct {
 	Host           string `yaml:"host"`
 	Port           int    `yaml:"port"`
@@ -67,6 +77,7 @@ type SMTPCfg struct {
 	TimeoutSeconds int    `yaml:"timeout_seconds"`
 }
 
+// Config holds the complete application configuration.
 type Config struct {
 	App   App      `yaml:"app"`
 	Odoo  Odoo     `yaml:"odoo"`
@@ -75,8 +86,14 @@ type Config struct {
 	SMTP  SMTPCfg  `yaml:"smtp"`
 }
 
+// Load reads and parses configuration from a YAML file.
 func Load(path string) (*Config, error) {
-	b, err := os.ReadFile(path)
+	// Validate path to prevent directory traversal
+	if strings.Contains(path, "..") {
+		return nil, fmt.Errorf("invalid path: contains directory traversal")
+	}
+
+	b, err := os.ReadFile(path) // #nosec G304 - path is validated above
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +119,10 @@ func Load(path string) (*Config, error) {
 	return &c, nil
 }
 
+// TemplatesDirOrDefault returns the default templates directory path.
 func (c *Config) TemplatesDirOrDefault() string { return "./templates" }
+
+// OdooTimeout returns the configured Odoo API timeout as a time.Duration.
 func (c *Config) OdooTimeout() time.Duration {
 	return time.Duration(c.Odoo.TimeoutSeconds) * time.Second
 }

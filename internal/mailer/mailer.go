@@ -1,3 +1,4 @@
+// Package mailer provides email sending functionality for notifications and communications.
 package mailer
 
 import (
@@ -10,6 +11,12 @@ import (
 	"github.com/jordan-wright/email"
 )
 
+const (
+	// smtpSubmissionPort is the standard submission port for SMTP
+	smtpSubmissionPort = 587
+)
+
+// SMTPConfig holds SMTP server configuration parameters.
 type SMTPConfig struct {
 	Host      string
 	Port      int
@@ -20,10 +27,13 @@ type SMTPConfig struct {
 	Timeout   time.Duration
 }
 
+// SMTPClient provides email sending functionality via SMTP.
 type SMTPClient struct{ cfg SMTPConfig }
 
+// NewSMTP creates a new SMTP client with the provided configuration.
 func NewSMTP(cfg SMTPConfig) *SMTPClient { return &SMTPClient{cfg: cfg} }
 
+// Send sends an email message to the specified recipient.
 func (m *SMTPClient) Send(to, subject, body string) error {
 	e := email.NewEmail()
 	if m.cfg.FromName != "" {
@@ -43,10 +53,16 @@ func (m *SMTPClient) Send(to, subject, body string) error {
 	}
 
 	// Use STARTTLS for port 587 (Gmail standard), direct TLS for port 465
-	if m.cfg.Port == 587 {
-		return e.SendWithStartTLS(addr, auth, &tls.Config{ServerName: m.cfg.Host})
+	if m.cfg.Port == smtpSubmissionPort {
+		return e.SendWithStartTLS(addr, auth, &tls.Config{
+			ServerName: m.cfg.Host,
+			MinVersion: tls.VersionTLS12,
+		})
 	}
-	return e.SendWithTLS(addr, auth, &tls.Config{ServerName: m.cfg.Host})
+	return e.SendWithTLS(addr, auth, &tls.Config{
+		ServerName: m.cfg.Host,
+		MinVersion: tls.VersionTLS12,
+	})
 }
 
 // Attachment represents an email attachment
@@ -84,10 +100,16 @@ func (m *SMTPClient) SendWithAttachments(to, subject, body string, attachments [
 	}
 
 	// Use STARTTLS for port 587 (Gmail standard), direct TLS for port 465
-	if m.cfg.Port == 587 {
-		return e.SendWithStartTLS(addr, auth, &tls.Config{ServerName: m.cfg.Host})
+	if m.cfg.Port == smtpSubmissionPort {
+		return e.SendWithStartTLS(addr, auth, &tls.Config{
+			ServerName: m.cfg.Host,
+			MinVersion: tls.VersionTLS12,
+		})
 	}
-	return e.SendWithTLS(addr, auth, &tls.Config{ServerName: m.cfg.Host})
+	return e.SendWithTLS(addr, auth, &tls.Config{
+		ServerName: m.cfg.Host,
+		MinVersion: tls.VersionTLS12,
+	})
 }
 
 func itoa(v int) string { return fmt.Sprintf("%d", v) }

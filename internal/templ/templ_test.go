@@ -36,7 +36,7 @@ func TestEngine_render(t *testing.T) {
 	// Create test template file
 	templateContent := "Hello {{.Name}}! Your ID is {{.ID}}."
 	templatePath := filepath.Join(tmpDir, "test.tmpl")
-	err := os.WriteFile(templatePath, []byte(templateContent), 0644)
+	err := os.WriteFile(templatePath, []byte(templateContent), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test template: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestEngine_render(t *testing.T) {
 	}
 
 	// render() returns (string, string, error) - first string is empty, second contains result
-	_, result, err := engine.render("test.tmpl", data)
+	result, err := engine.render("test.tmpl", data)
 	if err != nil {
 		t.Fatalf("render() should not fail: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestEngine_render(t *testing.T) {
 	}
 
 	// Test with missing template file
-	_, _, err = engine.render("nonexistent.tmpl", data)
+	_, err = engine.render("nonexistent.tmpl", data)
 	if err == nil {
 		t.Error("render() with missing file should fail")
 	}
@@ -76,7 +76,7 @@ func TestEngine_render_InvalidTemplate(t *testing.T) {
 	// Create invalid template file
 	invalidTemplate := "Hello {{.Name}! Missing closing brace"
 	templatePath := filepath.Join(tmpDir, "invalid.tmpl")
-	err := os.WriteFile(templatePath, []byte(invalidTemplate), 0644)
+	err := os.WriteFile(templatePath, []byte(invalidTemplate), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create invalid template: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestEngine_render_InvalidTemplate(t *testing.T) {
 	}
 
 	// Test with invalid template syntax
-	_, _, err = engine.render("invalid.tmpl", map[string]any{"Name": "Test"})
+	_, err = engine.render("invalid.tmpl", map[string]any{"Name": "Test"})
 	if err == nil {
 		t.Error("render() with invalid template should fail")
 	}
@@ -113,12 +113,12 @@ Original message:
 Best regards,
 Support Team`
 
-	err := os.WriteFile(filepath.Join(tmpDir, "new_ticket_subject.tmpl"), []byte(subjectTemplate), 0644)
+	err := os.WriteFile(filepath.Join(tmpDir, "new_ticket_subject.tmpl"), []byte(subjectTemplate), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create subject template: %v", err)
 	}
 
-	err = os.WriteFile(filepath.Join(tmpDir, "new_ticket_body.tmpl"), []byte(bodyTemplate), 0644)
+	err = os.WriteFile(filepath.Join(tmpDir, "new_ticket_body.tmpl"), []byte(bodyTemplate), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create body template: %v", err)
 	}
@@ -170,12 +170,12 @@ func TestEngine_RenderAgentReply(t *testing.T) {
 Best regards,
 Support Team`
 
-	err := os.WriteFile(filepath.Join(tmpDir, "agent_reply_subject.tmpl"), []byte(subjectTemplate), 0644)
+	err := os.WriteFile(filepath.Join(tmpDir, "agent_reply_subject.tmpl"), []byte(subjectTemplate), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create subject template: %v", err)
 	}
 
-	err = os.WriteFile(filepath.Join(tmpDir, "agent_reply_body.tmpl"), []byte(bodyTemplate), 0644)
+	err = os.WriteFile(filepath.Join(tmpDir, "agent_reply_body.tmpl"), []byte(bodyTemplate), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create body template: %v", err)
 	}
@@ -223,12 +223,12 @@ Thank you for using our support!
 Best regards,
 Support Team`
 
-	err := os.WriteFile(filepath.Join(tmpDir, "ticket_closed_subject.tmpl"), []byte(subjectTemplate), 0644)
+	err := os.WriteFile(filepath.Join(tmpDir, "ticket_closed_subject.tmpl"), []byte(subjectTemplate), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create subject template: %v", err)
 	}
 
-	err = os.WriteFile(filepath.Join(tmpDir, "ticket_closed_body.tmpl"), []byte(bodyTemplate), 0644)
+	err = os.WriteFile(filepath.Join(tmpDir, "ticket_closed_body.tmpl"), []byte(bodyTemplate), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create body template: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestEngine_EmptyData(t *testing.T) {
 
 	// Create simple template
 	templateContent := "{{.Value}}"
-	err := os.WriteFile(filepath.Join(tmpDir, "simple.tmpl"), []byte(templateContent), 0644)
+	err := os.WriteFile(filepath.Join(tmpDir, "simple.tmpl"), []byte(templateContent), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create template: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestEngine_EmptyData(t *testing.T) {
 	}
 
 	// Test with empty data
-	_, result, err := engine.render("simple.tmpl", map[string]any{"Value": ""})
+	result, err := engine.render("simple.tmpl", map[string]any{"Value": ""})
 	if err != nil {
 		t.Fatalf("render() with empty value should not fail: %v", err)
 	}
@@ -314,7 +314,7 @@ func TestEngine_EmptyData(t *testing.T) {
 
 	// Test with nil data - template execution doesn't fail with nil data in Go templates
 	// but accessing fields will result in <no value>
-	_, result2, err2 := engine.render("simple.tmpl", nil)
+	result2, err2 := engine.render("simple.tmpl", nil)
 	if err2 != nil {
 		t.Fatalf("render() with nil data should not fail: %v", err2)
 	}
@@ -329,14 +329,14 @@ func TestEngine_SubjectTrimming(t *testing.T) {
 
 	// Create template with whitespace - using correct variable names that match RenderNewTicket
 	subjectTemplate := "  [{{.TicketPrefix}}-#{{.TaskID}}] Test Subject  \n"
-	err := os.WriteFile(filepath.Join(tmpDir, "new_ticket_subject.tmpl"), []byte(subjectTemplate), 0644)
+	err := os.WriteFile(filepath.Join(tmpDir, "new_ticket_subject.tmpl"), []byte(subjectTemplate), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create template: %v", err)
 	}
 
 	// Create minimal body template
 	bodyTemplate := "Test body"
-	err = os.WriteFile(filepath.Join(tmpDir, "new_ticket_body.tmpl"), []byte(bodyTemplate), 0644)
+	err = os.WriteFile(filepath.Join(tmpDir, "new_ticket_body.tmpl"), []byte(bodyTemplate), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create body template: %v", err)
 	}

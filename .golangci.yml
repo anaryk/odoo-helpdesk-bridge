@@ -1,16 +1,40 @@
+# golangci-lint configuration
+version: "2"
+
 run:
   timeout: 5m
   tests: true
 
+linters:
+  enable:
+    # Default linters (always enabled)
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    
+    # Additional useful linters
+    - bodyclose
+    - dupl
+    - goconst
+    - gocritic
+    - gocyclo
+    - revive
+    - mnd
+    - gosec
+    - misspell
+    - unconvert
+    - unparam
+    - whitespace
+    - rowserrcheck
+    - noctx
+
 linters-settings:
   govet:
-    check-shadowing: true
-  golint:
-    min-confidence: 0
+    shadow: true
   gocyclo:
     min-complexity: 15
-  maligned:
-    suggest-new: true
   dupl:
     threshold: 100
   goconst:
@@ -28,57 +52,13 @@ linters-settings:
       - performance
       - style
 
-linters:
-  enable:
-    - bodyclose
-    - deadcode
-    - depguard
-    - dogsled
-    - dupl
-    - errcheck
-    - exportloopref
-    - exhaustive
-    - funlen
-    - gochecknoinits
-    - goconst
-    - gocritic
-    - gocyclo
-    - gofmt
-    - goimports
-    - golint
-    - gomnd
-    - goprintffuncname
-    - gosec
-    - gosimple
-    - govet
-    - ineffassign
-    - interfacer
-    - lll
-    - misspell
-    - nakedret
-    - noctx
-    - nolintlint
-    - rowserrcheck
-    - scopelint
-    - staticcheck
-    - structcheck
-    - stylecheck
-    - typecheck
-    - unconvert
-    - unparam
-    - unused
-    - varcheck
-    - whitespace
-
 issues:
   exclude-rules:
     - path: _test\.go
       linters:
-        - gomnd
-        - funlen
-        - gocyclo
-    - path: internal/
+        - mnd
+        - dupl
+        - goconst
+    - text: "mnd: Magic number"
       linters:
-        - gomnd
-      text: "Magic number"
-  exclude-use-default: false
+        - mnd

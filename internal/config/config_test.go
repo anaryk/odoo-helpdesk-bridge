@@ -67,7 +67,7 @@ smtp:
   timeout_seconds: 30
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	err := os.WriteFile(configPath, []byte(configContent), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}
@@ -185,7 +185,7 @@ smtp:
   host: "smtp.example.com"
 `
 
-	err := os.WriteFile(configPath, []byte(minimalContent), 0644)
+	err := os.WriteFile(configPath, []byte(minimalContent), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create minimal config file: %v", err)
 	}
@@ -256,7 +256,7 @@ app:
       - for poll_seconds
 `
 
-	err := os.WriteFile(configPath, []byte(invalidContent), 0644)
+	err := os.WriteFile(configPath, []byte(invalidContent), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create invalid config file: %v", err)
 	}
@@ -315,7 +315,7 @@ smtp:
   password: "test_password"
 `
 
-	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	err := os.WriteFile(configPath, []byte(configContent), 0600)
 	if err != nil {
 		t.Fatalf("Failed to create test config file: %v", err)
 	}

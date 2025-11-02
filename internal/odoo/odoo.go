@@ -1,3 +1,4 @@
+// Package odoo provides integration with Odoo ERP system for task management and API interactions.
 package odoo
 
 import (
@@ -14,6 +15,18 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	// previewMaxLength defines maximum length for task description preview
+	previewMaxLength = 100
+
+	// defaultQueryLimit defines default limit for Odoo API queries
+	defaultQueryLimit = 200
+
+	// minFieldLength for partner/user data validation
+	minFieldLength = 2
+)
+
+// Config holds Odoo server connection configuration.
 type Config struct {
 	URL     string
 	DB      string
@@ -22,12 +35,14 @@ type Config struct {
 	Timeout time.Duration
 }
 
+// Client represents an authenticated Odoo API client.
 type Client struct {
 	cfg  Config
 	uid  int64
 	http *http.Client
 }
 
+// NewClient creates a new authenticated Odoo client with the provided configuration.
 func NewClient(ctx context.Context, cfg Config) (*Client, error) {
 	cl := &Client{
 		cfg:  cfg,
@@ -76,7 +91,11 @@ func (c *Client) rpc(ctx context.Context, path string, call map[string]any, resu
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Error().Err(err).Msg("failed to close response body")
+		}
+	}()
 	var r struct {
 		Result any `json:"result"`
 		Error  *struct {
@@ -101,6 +120,7 @@ func (c *Client) rpc(ctx context.Context, path string, call map[string]any, resu
 
 // --- domain types ---
 
+// CreateTaskInput holds the parameters for creating a new task in Odoo.
 type CreateTaskInput struct {
 	ProjectID         int64
 	Name              string
@@ -109,12 +129,13 @@ type CreateTaskInput struct {
 	StageID           int64
 }
 
+// CreateTask creates a new task in Odoo with the provided input parameters.
 func (c *Client) CreateTask(ctx context.Context, in CreateTaskInput) (int64, error) {
 	log.Debug().Str("name", in.Name).Int64("project_id", in.ProjectID).Int64("partner_id", in.CustomerPartnerID).Int64("stage_id", in.StageID).Int("description_length", len(in.Description)).Msg("creating new task")
 
 	if len(in.Description) > 0 {
 		preview := in.Description
-		if len(preview) > 100 {
+		if len(preview) > previewMaxLength {
 			preview = preview[:97] + "..."
 		}
 		log.Debug().Str("description_preview", preview).Msg("task description content")
@@ -152,12 +173,14 @@ func (c *Client) CreateTask(ctx context.Context, in CreateTaskInput) (int64, err
 	return id, err
 }
 
+// AddFollower adds a partner as a follower to the specified task.
 func (c *Client) AddFollower(ctx context.Context, taskID, partnerID int64) error {
 	// message_subscribe
 	var ok bool
 	return c.execKW(ctx, "project.task", "message_subscribe", []any{taskID, []int64{partnerID}}, nil, &ok)
 }
 
+// FindOrCreatePartnerByEmail finds an existing partner by email or creates a new one.
 func (c *Client) FindOrCreatePartnerByEmail(ctx context.Context, email, name string) (int64, error) {
 	var ids []int64
 	err := c.execKW(ctx, "res.partner", "search", []any{[][]any{{"email", "=", email}}}, map[string]any{"limit": 1}, &ids)
@@ -183,6 +206,7 @@ func ifEmpty(v, fallback string) string {
 	return v
 }
 
+// TaskURL generates a URL for accessing a task in the Odoo web interface.
 func (c *Client) TaskURL(base string, id int64) string {
 	base = strings.TrimRight(base, "/")
 	return base + "/web#id=" + itoa(int(id)) + "&model=project.task&view_type=form"
@@ -212,6 +236,7 @@ func itoa(v int) string {
 
 // --- Messages (chatter) ---
 
+// MessagePostCustomer posts a message to a task as a customer communication.
 func (c *Client) MessagePostCustomer(ctx context.Context, taskID, customerPartnerID int64, body string) error {
 	// public comment -> goes to followers
 	var ok any
@@ -223,7 +248,7 @@ func (c *Client) MessagePostCustomer(ctx context.Context, taskID, customerPartne
 	}, &ok)
 }
 
-// Operator messages polling - we fetch mail.message of project.task since time T
+// TaskMessage represents a message associated with a project task for operator message polling.
 type TaskMessage struct {
 	ID                int64
 	TaskID            int64
@@ -235,6 +260,7 @@ type TaskMessage struct {
 	IsPublicPrefix    bool // starts with [public]
 }
 
+// ListTaskMessagesSince retrieves task messages that have been created since the specified time.
 func (c *Client) ListTaskMessagesSince(ctx context.Context, since time.Time) ([]TaskMessage, error) {
 	// search mail.message by model=project.task and date > since
 	var ids []int64
@@ -242,7 +268,7 @@ func (c *Client) ListTaskMessagesSince(ctx context.Context, since time.Time) ([]
 	if !since.IsZero() {
 		domain = append(domain, []any{"date", ">", since.UTC().Format("2006-01-02 15:04:05")})
 	}
-	if err := c.execKW(ctx, "mail.message", "search", []any{domain}, map[string]any{"order": "date asc", "limit": 200}, &ids); err != nil {
+	if err := c.execKW(ctx, "mail.message", "search", []any{domain}, map[string]any{"order": "date asc", "limit": defaultQueryLimit}, &ids); err != nil {
 		return nil, err
 	}
 	if len(ids) == 0 {
@@ -355,6 +381,7 @@ func stripTags(s string) string {
 
 // --- tasks ---
 
+// Task represents a project task in Odoo with associated metadata.
 type Task struct {
 	ID               int64
 	Name             string
@@ -367,6 +394,7 @@ type Task struct {
 	AssignedUserName string
 }
 
+// GetTask retrieves a task by its ID from Odoo.
 func (c *Client) GetTask(ctx context.Context, id int64) (*Task, error) {
 	var rows []map[string]any
 	if err := c.execKW(ctx, "project.task", "read", []any{[]int64{id}, []string{"id", "name", "stage_id", "partner_id", "user_id"}}, nil, &rows); err != nil {
@@ -379,18 +407,18 @@ func (c *Client) GetTask(ctx context.Context, id int64) (*Task, error) {
 	stagePair := anySlice(r["stage_id"])
 	var stageID int64
 	var stageName string
-	if len(stagePair) >= 2 {
+	if len(stagePair) >= minFieldLength {
 		stageID = toInt64(stagePair[0])
 		stageName = str(stagePair[1])
 	}
 	// Get partner (customer) email and name
 	partnerPair := anySlice(r["partner_id"])
 	var email, pname string
-	if len(partnerPair) >= 2 {
+	if len(partnerPair) >= minFieldLength {
 		partnerID := toInt64(partnerPair[0])
 		pname = str(partnerPair[1])
 		if partnerID > 0 {
-			email, _ = c.partnerEmailName(ctx, partnerID)
+			email = c.partnerEmailName(ctx, partnerID)
 		}
 	}
 
@@ -398,7 +426,7 @@ func (c *Client) GetTask(ctx context.Context, id int64) (*Task, error) {
 	userPair := anySlice(r["user_id"])
 	var assignedUserID int64
 	var assignedUserName string
-	if len(userPair) >= 2 {
+	if len(userPair) >= minFieldLength {
 		assignedUserID = toInt64(userPair[0])
 		assignedUserName = str(userPair[1])
 	}
@@ -417,19 +445,20 @@ func (c *Client) GetTask(ctx context.Context, id int64) (*Task, error) {
 	return t, nil
 }
 
-func (c *Client) partnerEmailName(ctx context.Context, id int64) (string, string) {
+func (c *Client) partnerEmailName(ctx context.Context, id int64) string {
 	var rows []map[string]any
-	_ = c.execKW(ctx, "res.partner", "read", []any{[]int64{id}, []string{"email", "name"}}, nil, &rows)
+	_ = c.execKW(ctx, "res.partner", "read", []any{[]int64{id}, []string{"email"}}, nil, &rows)
 	if len(rows) == 0 {
-		return "", ""
+		return ""
 	}
-	return str(rows[0]["email"]), str(rows[0]["name"])
+	return str(rows[0]["email"])
 }
 
+// ListRecentlyChangedTasks retrieves tasks that have been modified since the specified time.
 func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) ([]*Task, error) {
 	var ids []int64
 	domain := [][]any{{"write_date", ">", since.UTC().Format("2006-01-02 15:04:05")}}
-	if err := c.execKW(ctx, "project.task", "search", []any{domain}, map[string]any{"limit": 200}, &ids); err != nil {
+	if err := c.execKW(ctx, "project.task", "search", []any{domain}, map[string]any{"limit": defaultQueryLimit}, &ids); err != nil {
 		return nil, err
 	}
 	if len(ids) == 0 {
@@ -444,7 +473,7 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) 
 		stagePair := anySlice(r["stage_id"])
 		var stageID int64
 		var stageName string
-		if len(stagePair) >= 2 {
+		if len(stagePair) >= minFieldLength {
 			stageID = toInt64(stagePair[0])
 			stageName = str(stagePair[1])
 		}
@@ -452,11 +481,11 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) 
 		// Get partner (customer) email and name
 		partnerPair := anySlice(r["partner_id"])
 		var email, pname string
-		if len(partnerPair) >= 2 {
+		if len(partnerPair) >= minFieldLength {
 			partnerID := toInt64(partnerPair[0])
 			pname = str(partnerPair[1])
 			if partnerID > 0 {
-				email, _ = c.partnerEmailName(ctx, partnerID)
+				email = c.partnerEmailName(ctx, partnerID)
 			}
 		}
 
@@ -464,7 +493,7 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) 
 		userPair := anySlice(r["user_id"])
 		var assignedUserID int64
 		var assignedUserName string
-		if len(userPair) >= 2 {
+		if len(userPair) >= minFieldLength {
 			assignedUserID = toInt64(userPair[0])
 			assignedUserName = str(userPair[1])
 		}
@@ -486,7 +515,7 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) 
 func (c *Client) ListRecentlyChangedTasksForSLA(ctx context.Context, since time.Time) ([]*Task, error) {
 	var ids []int64
 	domain := [][]any{{"write_date", ">", since.UTC().Format("2006-01-02 15:04:05")}}
-	if err := c.execKW(ctx, "project.task", "search", []any{domain}, map[string]any{"limit": 200}, &ids); err != nil {
+	if err := c.execKW(ctx, "project.task", "search", []any{domain}, map[string]any{"limit": defaultQueryLimit}, &ids); err != nil {
 		return nil, err
 	}
 	if len(ids) == 0 {
@@ -501,7 +530,7 @@ func (c *Client) ListRecentlyChangedTasksForSLA(ctx context.Context, since time.
 		stagePair := anySlice(r["stage_id"])
 		var stageID int64
 		var stageName string
-		if len(stagePair) >= 2 {
+		if len(stagePair) >= minFieldLength {
 			stageID = toInt64(stagePair[0])
 			stageName = str(stagePair[1])
 		}
@@ -517,6 +546,7 @@ func (c *Client) ListRecentlyChangedTasksForSLA(ctx context.Context, since time.
 	return out, nil
 }
 
+// IsTaskDone checks if a task is in a done stage based on the provided stage IDs.
 func (c *Client) IsTaskDone(t *Task, doneStageIDs []int64) bool {
 	if len(doneStageIDs) > 0 {
 		for _, id := range doneStageIDs {
@@ -611,8 +641,8 @@ func (c *Client) GetTaskCounts(ctx context.Context, projectID int64, operatorEma
 	return counts, nil
 }
 
-// Attachment represents an attachment in Odoo
-type OdooAttachment struct {
+// Attachment represents an attachment in Odoo with metadata.
+type Attachment struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
 	MimeType string `json:"mimetype"`
@@ -620,7 +650,7 @@ type OdooAttachment struct {
 }
 
 // UploadAttachment uploads an attachment to a task
-func (c *Client) UploadAttachment(ctx context.Context, taskID int64, filename string, contentType string, data []byte) (*OdooAttachment, error) {
+func (c *Client) UploadAttachment(ctx context.Context, taskID int64, filename string, contentType string, data []byte) (*Attachment, error) {
 	log.Debug().Int64("task_id", taskID).Str("filename", filename).Str("content_type", contentType).Int("data_size", len(data)).Msg("uploading attachment to Odoo")
 
 	// Encode data to base64
@@ -646,7 +676,7 @@ func (c *Client) UploadAttachment(ctx context.Context, taskID int64, filename st
 
 	log.Debug().Int64("attachment_id", attachmentID).Int64("task_id", taskID).Str("filename", filename).Msg("attachment uploaded successfully to Odoo")
 
-	return &OdooAttachment{
+	return &Attachment{
 		ID:       attachmentID,
 		Name:     filename,
 		MimeType: contentType,
@@ -655,7 +685,7 @@ func (c *Client) UploadAttachment(ctx context.Context, taskID int64, filename st
 }
 
 // GetTaskAttachments retrieves attachments for a task
-func (c *Client) GetTaskAttachments(ctx context.Context, taskID int64) ([]OdooAttachment, error) {
+func (c *Client) GetTaskAttachments(ctx context.Context, taskID int64) ([]Attachment, error) {
 	var attachmentIDs []int64
 	err := c.execKW(ctx, "ir.attachment", "search", []any{[][]any{
 		{"res_model", "=", "project.task"},
@@ -675,9 +705,9 @@ func (c *Client) GetTaskAttachments(ctx context.Context, taskID int64) ([]OdooAt
 		return nil, err
 	}
 
-	result := make([]OdooAttachment, len(attachments))
+	result := make([]Attachment, len(attachments))
 	for i, att := range attachments {
-		result[i] = OdooAttachment{
+		result[i] = Attachment{
 			ID:       int64(att["id"].(float64)),
 			Name:     att["name"].(string),
 			MimeType: att["mimetype"].(string),

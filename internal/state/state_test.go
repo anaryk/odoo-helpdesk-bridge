@@ -15,7 +15,7 @@ func TestStore_EmailProcessing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	emailID := "test-email-123"
 
@@ -52,7 +52,7 @@ func TestStore_OdooMessageTracking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	messageID := int64(456)
 
@@ -83,7 +83,7 @@ func TestStore_SlackMessageTracking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	taskID := int64(789)
 	slackMsg := SlackMessageInfo{
@@ -130,7 +130,7 @@ func TestStore_SLAStateTracking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	taskID := int64(999)
 	now := time.Now()
@@ -180,7 +180,7 @@ func TestStore_LastOdooMessageTime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// Initially, should return zero time
 	lastTime := store.GetLastOdooMessageTime()
@@ -218,14 +218,14 @@ func TestStore_Persistence(t *testing.T) {
 		t.Fatalf("MarkProcessedEmail failed: %v", err)
 	}
 
-	store.Close()
+	_ = store.Close()
 
 	// Reopen store and verify data persists
 	store2, err := New(dbPath)
 	if err != nil {
 		t.Fatalf("Failed to reopen store: %v", err)
 	}
-	defer store2.Close()
+	defer func() { _ = store2.Close() }()
 
 	processed, err := store2.IsProcessedEmail(emailID)
 	if err != nil {

@@ -13,14 +13,14 @@ import (
 
 func TestNewClient_Success(t *testing.T) {
 	// Create mock server
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Mock successful authentication
 		response := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result":  int64(42), // Mock user ID
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -51,7 +51,7 @@ func TestNewClient_Success(t *testing.T) {
 
 func TestNewClient_AuthFailure(t *testing.T) {
 	// Create mock server that returns authentication error
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -60,7 +60,7 @@ func TestNewClient_AuthFailure(t *testing.T) {
 				"message": "Authentication failed",
 			},
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -84,25 +84,26 @@ func TestNewClient_AuthFailure(t *testing.T) {
 
 func TestCreateTask_Success(t *testing.T) {
 	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		var response map[string]any
 
-		if callCount == 1 {
+		switch callCount {
+		case 1:
 			// First call - authentication
 			response = map[string]any{
 				"jsonrpc": "2.0",
 				"id":      1,
 				"result":  int64(42),
 			}
-		} else if callCount == 2 {
+		case 2:
 			// Second call - create task
 			response = map[string]any{
 				"jsonrpc": "2.0",
 				"id":      2,
 				"result":  int64(123), // Mock task ID
 			}
-		} else {
+		default:
 			// Third call - add follower
 			response = map[string]any{
 				"jsonrpc": "2.0",
@@ -110,7 +111,7 @@ func TestCreateTask_Success(t *testing.T) {
 				"result":  true,
 			}
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -147,7 +148,7 @@ func TestCreateTask_Success(t *testing.T) {
 
 func TestCreateTask_WithoutCustomer(t *testing.T) {
 	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		var response map[string]any
 
@@ -166,7 +167,7 @@ func TestCreateTask_WithoutCustomer(t *testing.T) {
 				"result":  int64(456),
 			}
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -208,7 +209,7 @@ func TestCreateTask_WithoutCustomer(t *testing.T) {
 
 func TestFindOrCreatePartnerByEmail_ExistingPartner(t *testing.T) {
 	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		var response map[string]any
 
@@ -227,7 +228,7 @@ func TestFindOrCreatePartnerByEmail_ExistingPartner(t *testing.T) {
 				"result":  []int64{789}, // Existing partner ID
 			}
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -257,25 +258,26 @@ func TestFindOrCreatePartnerByEmail_ExistingPartner(t *testing.T) {
 
 func TestFindOrCreatePartnerByEmail_CreateNew(t *testing.T) {
 	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		var response map[string]any
 
-		if callCount == 1 {
+		switch callCount {
+		case 1:
 			// Authentication
 			response = map[string]any{
 				"jsonrpc": "2.0",
 				"id":      1,
 				"result":  int64(42),
 			}
-		} else if callCount == 2 {
+		case 2:
 			// Search - no existing partner
 			response = map[string]any{
 				"jsonrpc": "2.0",
 				"id":      2,
 				"result":  []int64{}, // No existing partner
 			}
-		} else {
+		default:
 			// Create new partner
 			response = map[string]any{
 				"jsonrpc": "2.0",
@@ -283,7 +285,7 @@ func TestFindOrCreatePartnerByEmail_CreateNew(t *testing.T) {
 				"result":  int64(999), // New partner ID
 			}
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -313,7 +315,7 @@ func TestFindOrCreatePartnerByEmail_CreateNew(t *testing.T) {
 
 func TestAddFollower(t *testing.T) {
 	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		var response map[string]any
 
@@ -332,7 +334,7 @@ func TestAddFollower(t *testing.T) {
 				"result":  true,
 			}
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -357,7 +359,7 @@ func TestAddFollower(t *testing.T) {
 }
 
 func TestRPC_Error(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -366,7 +368,7 @@ func TestRPC_Error(t *testing.T) {
 				"message": "Internal server error",
 			},
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -389,9 +391,9 @@ func TestRPC_Error(t *testing.T) {
 }
 
 func TestRPC_InvalidJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Return invalid JSON
-		w.Write([]byte("invalid json"))
+		_, _ = w.Write([]byte("invalid json"))
 	}))
 	defer server.Close()
 
@@ -449,7 +451,7 @@ func TestIfEmpty(t *testing.T) {
 }
 
 func TestContext_Timeout(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Simulate slow response
 		time.Sleep(200 * time.Millisecond)
 		response := map[string]any{
@@ -457,7 +459,7 @@ func TestContext_Timeout(t *testing.T) {
 			"id":      1,
 			"result":  int64(42),
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -477,13 +479,13 @@ func TestContext_Timeout(t *testing.T) {
 }
 
 func TestSetTaskStage_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result":  true,
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -501,7 +503,7 @@ func TestSetTaskStage_Success(t *testing.T) {
 
 func TestAssignTask_Success(t *testing.T) {
 	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		var response map[string]any
 		if callCount == 1 {
@@ -519,7 +521,7 @@ func TestAssignTask_Success(t *testing.T) {
 				"result":  true,
 			}
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -536,14 +538,14 @@ func TestAssignTask_Success(t *testing.T) {
 }
 
 func TestGetTaskCounts_Success(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Mock response for search_count
 		response := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result":  5, // 5 tasks assigned to user
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -607,14 +609,14 @@ func TestIsTaskDone_WithoutDoneStageIDs(t *testing.T) {
 
 func TestUploadAttachment_Success(t *testing.T) {
 	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		response := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
 			"result":  int64(42), // Attachment ID
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -639,7 +641,7 @@ func TestUploadAttachment_Success(t *testing.T) {
 
 func TestGetTaskAttachments_Success(t *testing.T) {
 	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 		var response map[string]any
 		if callCount == 1 {
@@ -660,7 +662,7 @@ func TestGetTaskAttachments_Success(t *testing.T) {
 				},
 			}
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
@@ -687,10 +689,11 @@ func TestGetTaskAttachments_Success(t *testing.T) {
 func TestReopenTask_TaskAlreadyOpen(t *testing.T) {
 	// Mock server that returns an open task
 	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 
-		if callCount == 1 {
+		switch callCount {
+		case 1:
 			// First call: GetTask returns open task
 			response := map[string]any{
 				"jsonrpc": "2.0",
@@ -704,8 +707,8 @@ func TestReopenTask_TaskAlreadyOpen(t *testing.T) {
 					},
 				},
 			}
-			json.NewEncoder(w).Encode(response)
-		} else if callCount == 2 {
+			_ = json.NewEncoder(w).Encode(response)
+		case 2:
 			// Second call: partnerEmailName
 			response := map[string]any{
 				"jsonrpc": "2.0",
@@ -717,8 +720,8 @@ func TestReopenTask_TaskAlreadyOpen(t *testing.T) {
 					},
 				},
 			}
-			json.NewEncoder(w).Encode(response)
-		} else {
+			_ = json.NewEncoder(w).Encode(response)
+		default:
 			t.Errorf("Unexpected call count: %d", callCount)
 		}
 	}))
@@ -750,10 +753,11 @@ func TestReopenTask_TaskAlreadyOpen(t *testing.T) {
 func TestReopenTask_TaskClosed(t *testing.T) {
 	// Mock server that handles task reopening
 	callCount := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		callCount++
 
-		if callCount == 1 {
+		switch callCount {
+		case 1:
 			// First call: GetTask returns closed task
 			response := map[string]any{
 				"jsonrpc": "2.0",
@@ -767,8 +771,8 @@ func TestReopenTask_TaskClosed(t *testing.T) {
 					},
 				},
 			}
-			json.NewEncoder(w).Encode(response)
-		} else if callCount == 2 {
+			_ = json.NewEncoder(w).Encode(response)
+		case 2:
 			// Second call: partnerEmailName
 			response := map[string]any{
 				"jsonrpc": "2.0",
@@ -780,24 +784,24 @@ func TestReopenTask_TaskClosed(t *testing.T) {
 					},
 				},
 			}
-			json.NewEncoder(w).Encode(response)
-		} else if callCount == 3 {
+			_ = json.NewEncoder(w).Encode(response)
+		case 3:
 			// Third call: SetTaskStage
 			response := map[string]any{
 				"jsonrpc": "2.0",
 				"id":      1,
 				"result":  true,
 			}
-			json.NewEncoder(w).Encode(response)
-		} else if callCount == 4 {
+			_ = json.NewEncoder(w).Encode(response)
+		case 4:
 			// Fourth call: message_post for reopening comment
 			response := map[string]any{
 				"jsonrpc": "2.0",
 				"id":      1,
 				"result":  true,
 			}
-			json.NewEncoder(w).Encode(response)
-		} else {
+			_ = json.NewEncoder(w).Encode(response)
+		default:
 			t.Errorf("Unexpected call count: %d", callCount)
 		}
 	}))
@@ -827,7 +831,7 @@ func TestReopenTask_TaskClosed(t *testing.T) {
 
 func TestReopenTask_GetTaskFails(t *testing.T) {
 	// Mock server that returns error for GetTask
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		response := map[string]any{
 			"jsonrpc": "2.0",
 			"id":      1,
@@ -836,7 +840,7 @@ func TestReopenTask_GetTaskFails(t *testing.T) {
 				"message": "Task not found",
 			},
 		}
-		json.NewEncoder(w).Encode(response)
+		_ = json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 

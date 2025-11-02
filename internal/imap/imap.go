@@ -1,3 +1,4 @@
+// Package imap provides IMAP client functionality for fetching and processing emails.
 package imap
 
 import (
@@ -19,36 +20,61 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	// maxChannelBuffer defines the buffer size for IMAP message channels
+	maxChannelBuffer = 50
+
+	// maxRegexGroups expected from ticket ID regex matching
+	maxRegexGroups = 3
+
+	// maxHeaderLines to log during email parsing debug
+	maxHeaderLines = 10
+
+	// attachmentDisposition constant values
+	attachmentDisposition = "attachment"
+	inlineDisposition     = "inline"
+
+	// base64Encoding constant value
+	base64Encoding = "base64"
+)
+
+// Config holds IMAP client configuration parameters.
 type Config struct {
 	Host, Username, Password, Folder, SearchTo, ProcessedKeyword string
 	Port                                                         int
 }
 
+// Client represents an IMAP email client connection.
 type Client struct {
 	cfg     Config
 	c       *client.Client
 	mailbox string
 }
 
+// New creates a new IMAP client with the given configuration.
 func New(cfg Config) (*Client, error) {
 	addr := net.JoinHostPort(cfg.Host, itoa(cfg.Port))
-	tlsConf := &tls.Config{ServerName: cfg.Host}
+	tlsConf := &tls.Config{
+		ServerName: cfg.Host,
+		MinVersion: tls.VersionTLS12,
+	}
 	c, err := client.DialTLS(addr, tlsConf)
 	if err != nil {
 		return nil, err
 	}
 	if err := c.Login(cfg.Username, cfg.Password); err != nil {
-		c.Logout()
+		_ = c.Logout()
 		return nil, err
 	}
 	cl := &Client{cfg: cfg, c: c}
 	if err := cl.selectFolder(cfg.Folder); err != nil {
-		c.Logout()
+		_ = c.Logout()
 		return nil, err
 	}
 	return cl, nil
 }
 
+// Close closes the IMAP connection and logs out from the server.
 func (cl *Client) Close() error {
 	if cl.c != nil {
 		_ = cl.c.Logout()
@@ -62,6 +88,7 @@ func (cl *Client) selectFolder(name string) error {
 	return err
 }
 
+// Attachment represents an email attachment with its metadata and content.
 type Attachment struct {
 	Filename    string
 	ContentType string
@@ -69,6 +96,7 @@ type Attachment struct {
 	Data        []byte
 }
 
+// Email represents a parsed email message with attachments.
 type Email struct {
 	ID          string // composed "mbox-uid"
 	UID         uint32
@@ -79,6 +107,7 @@ type Email struct {
 	Attachments []Attachment
 }
 
+// FetchUnseen retrieves all unseen emails from the configured IMAP folder.
 func (cl *Client) FetchUnseen(ctx context.Context) ([]Email, error) {
 	log.Debug().Str("folder", cl.cfg.Folder).Str("search_to", cl.cfg.SearchTo).Msg("searching for unseen emails")
 
@@ -131,7 +160,7 @@ func (cl *Client) FetchUnseen(ctx context.Context) ([]Email, error) {
 	items := []imap.FetchItem{imap.FetchEnvelope, imap.FetchUid, imap.FetchFlags, imap.FetchRFC822}
 
 	log.Debug().Msg("attempting to fetch envelope, flags and body content")
-	ch := make(chan *imap.Message, 50)
+	ch := make(chan *imap.Message, maxChannelBuffer)
 
 	fetchErr := make(chan error, 1)
 	go func() {
@@ -223,7 +252,8 @@ func (cl *Client) FetchUnseen(ctx context.Context) ([]Email, error) {
 	}
 }
 
-func (cl *Client) MarkSeen(ctx context.Context, uid uint32) error {
+// MarkSeen marks an email as seen and optionally adds a custom processed keyword.
+func (cl *Client) MarkSeen(_ context.Context, uid uint32) error {
 	seq := new(imap.SeqSet)
 	seq.AddNum(uid)
 	flags := []interface{}{imap.SeenFlag}
@@ -261,11 +291,12 @@ func htmlToText(s string) string {
 	return strings.TrimSpace(out.String())
 }
 
+// ExtractTicketID extracts a ticket ID from an email subject line using the expected prefix pattern.
 func ExtractTicketID(subject, expectedPrefix string) (int, bool) {
 	// [PREFIX-#123]
 	re := regexp.MustCompile(`\[\s*([A-Za-z0-9_-]+)\s*-\s*#(\d+)\s*\]`)
 	m := re.FindStringSubmatch(subject)
-	if len(m) != 3 {
+	if len(m) != maxRegexGroups {
 		return 0, false
 	}
 	if !strings.EqualFold(m[1], expectedPrefix) {
@@ -275,6 +306,7 @@ func ExtractTicketID(subject, expectedPrefix string) (int, bool) {
 	return id, id > 0
 }
 
+// CleanBody removes quoted text and previous messages from email body text.
 func CleanBody(b string) string {
 	lines := strings.Split(b, "\n")
 	var out []string
@@ -305,6 +337,8 @@ func itoaU(v uint32) string {
 }
 
 // parseEmailContent parses email content and extracts both body text and attachments
+//
+//nolint:gocyclo,gocritic // Email parsing requires extensive conditional logic and complex if-else chains
 func parseEmailContent(r io.Reader) (string, []Attachment) {
 	log.Debug().Msg("parsing email content for body and attachments")
 
@@ -324,7 +358,7 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 	}
 	lines := strings.Split(string(data[:previewLen]), "\n")
 	for i, line := range lines {
-		if i >= 10 {
+		if i >= maxHeaderLines {
 			break
 		}
 		log.Debug().Int("line", i).Str("content", line).Msg("email header line")
@@ -392,7 +426,7 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 		log.Debug().Int("part_index", i).Str("content_type", ct).Str("disposition", disposition).Int("body_size", len(part.body)).Msg("processing email part")
 
 		// Check if this is an attachment
-		if disposition == "attachment" || disposition == "inline" {
+		if disposition == attachmentDisposition || disposition == inlineDisposition {
 			filename := dispParams["filename"]
 			if filename == "" {
 				filename = params["name"]
@@ -409,7 +443,7 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 			// Decode content if needed
 			data := part.body
 			if encoding := part.header.Get("Content-Transfer-Encoding"); encoding != "" {
-				if strings.ToLower(encoding) == "base64" {
+				if strings.ToLower(encoding) == base64Encoding {
 					decoded, err := base64.StdEncoding.DecodeString(string(data))
 					if err == nil {
 						data = decoded
@@ -480,10 +514,10 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 
 					// Check if nested part is attachment
 					isNestedAttachment := false
-					if nestedDisposition == "attachment" {
+					if nestedDisposition == attachmentDisposition {
 						isNestedAttachment = true
 						log.Debug().Str("reason", "nested_disposition_attachment").Msg("nested part is attachment")
-					} else if nestedDisposition == "inline" && !strings.HasPrefix(nestedCt, "text/") {
+					} else if nestedDisposition == inlineDisposition && !strings.HasPrefix(nestedCt, "text/") {
 						isNestedAttachment = true
 						log.Debug().Str("reason", "nested_disposition_inline_non_text").Msg("nested part is attachment")
 					} else if nestedParams["name"] != "" && !strings.HasPrefix(nestedCt, "text/") {
@@ -510,7 +544,7 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 						// Decode nested content if needed
 						nestedData := nestedBody
 						if nestedEncoding := nestedPart.Header.Get("Content-Transfer-Encoding"); nestedEncoding != "" {
-							if strings.ToLower(nestedEncoding) == "base64" {
+							if strings.ToLower(nestedEncoding) == base64Encoding {
 								decoded, err := base64.StdEncoding.DecodeString(string(nestedData))
 								if err == nil {
 									nestedData = decoded
@@ -547,11 +581,12 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 			isAttachment := false
 			filename := ""
 
-			if disposition == "attachment" {
+			switch disposition {
+			case attachmentDisposition:
 				isAttachment = true
 				filename = dispParams["filename"]
 				log.Debug().Str("reason", "disposition_attachment").Str("filename", filename).Msg("detected attachment")
-			} else if disposition == "inline" {
+			case inlineDisposition:
 				// Inline can be attachment if it's not text
 				if !strings.HasPrefix(ct, "text/") {
 					isAttachment = true
@@ -594,7 +629,7 @@ func parseEmailContent(r io.Reader) (string, []Attachment) {
 				log.Debug().Str("encoding", encoding).Int("raw_size", len(data)).Msg("processing attachment encoding")
 
 				if encoding != "" {
-					if strings.ToLower(encoding) == "base64" {
+					if strings.ToLower(encoding) == base64Encoding {
 						decoded, err := base64.StdEncoding.DecodeString(string(data))
 						if err == nil {
 							data = decoded

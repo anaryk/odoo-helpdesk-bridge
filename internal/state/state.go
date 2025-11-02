@@ -1,3 +1,4 @@
+// Package state provides persistent storage for the odoo-helpdesk-bridge application.
 package state
 
 import (
@@ -5,6 +6,17 @@ import (
 	"time"
 
 	"go.etcd.io/bbolt"
+)
+
+const (
+	// dbFilePermissions defines the file permissions for the BBolt database file
+	dbFilePermissions = 0600
+
+	// int64ByteLength defines the byte length for int64 values
+	int64ByteLength = 8
+
+	// bitShiftOffset defines the bit shift offset for byte conversion
+	bitShiftOffset = 56
 )
 
 var (
@@ -16,10 +28,12 @@ var (
 	bSLAStates       = []byte("sla_states")
 )
 
+// Store provides persistent key-value storage using BBolt database.
 type Store struct{ db *bbolt.DB }
 
+// New creates a new Store instance with the specified database file path.
 func New(path string) (*Store, error) {
-	db, err := bbolt.Open(path, 0600, nil)
+	db, err := bbolt.Open(path, dbFilePermissions, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -31,13 +45,16 @@ func New(path string) (*Store, error) {
 		}
 		return nil
 	}); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return &Store{db: db}, nil
 }
+
+// Close closes the database connection.
 func (s *Store) Close() error { return s.db.Close() }
 
+// IsProcessedEmail checks if an email with the given ID has been processed.
 func (s *Store) IsProcessedEmail(id string) (bool, error) {
 	var ok bool
 	err := s.db.View(func(tx *bbolt.Tx) error {
@@ -46,12 +63,15 @@ func (s *Store) IsProcessedEmail(id string) (bool, error) {
 	})
 	return ok, err
 }
+
+// MarkProcessedEmail marks an email as processed in the database.
 func (s *Store) MarkProcessedEmail(id string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		return tx.Bucket(bProcessedEmails).Put([]byte(id), []byte("1"))
 	})
 }
 
+// IsOdooMessageSent checks if an Odoo message with the given ID has been sent.
 func (s *Store) IsOdooMessageSent(id int64) bool {
 	var ok bool
 	_ = s.db.View(func(tx *bbolt.Tx) error {
@@ -60,12 +80,15 @@ func (s *Store) IsOdooMessageSent(id int64) bool {
 	})
 	return ok
 }
+
+// MarkOdooMessageSent marks an Odoo message as sent in the state store.
 func (s *Store) MarkOdooMessageSent(id int64) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		return tx.Bucket(bOdooMsgSent).Put(itob(id), []byte("1"))
 	})
 }
 
+// GetLastOdooMessageTime retrieves the timestamp of the last processed Odoo message.
 func (s *Store) GetLastOdooMessageTime() time.Time {
 	var t time.Time
 	_ = s.db.View(func(tx *bbolt.Tx) error {
@@ -76,6 +99,8 @@ func (s *Store) GetLastOdooMessageTime() time.Time {
 	})
 	return t
 }
+
+// SetLastOdooMessageTime updates the timestamp of the last processed Odoo message.
 func (s *Store) SetLastOdooMessageTime(t time.Time) error {
 	txt, _ := t.UTC().MarshalText()
 	return s.db.Update(func(tx *bbolt.Tx) error {
@@ -83,6 +108,7 @@ func (s *Store) SetLastOdooMessageTime(t time.Time) error {
 	})
 }
 
+// IsTaskClosedNotified checks if a task closure notification has been sent.
 func (s *Store) IsTaskClosedNotified(id int64) bool {
 	var ok bool
 	_ = s.db.View(func(tx *bbolt.Tx) error {
@@ -91,6 +117,8 @@ func (s *Store) IsTaskClosedNotified(id int64) bool {
 	})
 	return ok
 }
+
+// MarkTaskClosedNotified marks a task as having its closure notification sent.
 func (s *Store) MarkTaskClosedNotified(id int64) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		return tx.Bucket(bClosedNotified).Put(itob(id), []byte("1"))
@@ -168,9 +196,9 @@ func (s *Store) GetSLAState(taskID int64) (*SLAState, error) {
 }
 
 func itob(v int64) []byte {
-	b := make([]byte, 8)
-	for i := uint(0); i < 8; i++ {
-		b[i] = byte(v >> (56 - i*8))
+	b := make([]byte, int64ByteLength)
+	for i := uint(0); i < int64ByteLength; i++ {
+		b[i] = byte(v >> (bitShiftOffset - i*int64ByteLength))
 	}
 	return b
 }

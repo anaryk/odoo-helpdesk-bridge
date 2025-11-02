@@ -1,19 +1,33 @@
+// Package slack provides Slack integration for sending notifications and threaded messages.
 package slack
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
+const (
+	// httpTimeoutSeconds defines the default timeout for HTTP requests
+	httpTimeoutSeconds = 30
+
+	// maxMessageLength defines the maximum length for Slack messages before truncation
+	maxMessageLength = 300
+)
+
+// Config holds Slack integration configuration parameters.
 type Config struct {
 	WebhookURL string
 	BotToken   string
 	ChannelID  string
 }
 
+// Client provides Slack messaging functionality.
 type Client struct {
 	webhook    string
 	botToken   string
@@ -21,30 +35,32 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// New creates a new Slack client with the provided webhook URL.
 func New(url string) *Client {
 	return &Client{
 		webhook:    url,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: httpTimeoutSeconds * time.Second},
 	}
 }
 
+// NewWithConfig creates a new Slack client with the provided configuration.
 func NewWithConfig(cfg Config) *Client {
 	return &Client{
 		webhook:    cfg.WebhookURL,
 		botToken:   cfg.BotToken,
 		channelID:  cfg.ChannelID,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: httpTimeoutSeconds * time.Second},
 	}
 }
 
-// SlackMessage represents a Slack message with timestamp for threading
-type SlackMessage struct {
+// Message represents a Slack message with timestamp for threading
+type Message struct {
 	Timestamp string `json:"ts"`
 	Channel   string `json:"channel"`
 }
 
 // NotifyNewTask sends notification about new task and returns message info for threading
-func (c *Client) NotifyNewTask(taskID int, title, url, body, assignedOperator string) (*SlackMessage, error) {
+func (c *Client) NotifyNewTask(taskID int, title, url, body, assignedOperator string) (*Message, error) {
 	// Use Bot API if available, otherwise fallback to webhook
 	if c.botToken != "" && c.channelID != "" {
 		return c.postNewTaskWithBot(taskID, title, url, body, assignedOperator)
@@ -55,11 +71,11 @@ func (c *Client) NotifyNewTask(taskID int, title, url, body, assignedOperator st
 	return nil, err
 }
 
-func (c *Client) postNewTaskWithBot(taskID int, title, url, body, assignedOperator string) (*SlackMessage, error) {
-	// Truncate body to first 300 chars for readability
+func (c *Client) postNewTaskWithBot(taskID int, title, url, body, assignedOperator string) (*Message, error) {
+	// Truncate body to first maxMessageLength chars for readability
 	truncatedBody := body
-	if len(body) > 300 {
-		truncatedBody = body[:300] + "..."
+	if len(body) > maxMessageLength {
+		truncatedBody = body[:maxMessageLength] + "..."
 	}
 
 	// Format timestamp
@@ -89,10 +105,10 @@ func (c *Client) postNewTaskWebhook(taskID int, title, url, body, assignedOperat
 		return nil
 	}
 
-	// Truncate body to first 300 chars for readability
+	// Truncate body to first maxMessageLength chars for readability
 	truncatedBody := body
-	if len(body) > 300 {
-		truncatedBody = body[:300] + "..."
+	if len(body) > maxMessageLength {
+		truncatedBody = body[:maxMessageLength] + "..."
 	}
 
 	// Format timestamp
@@ -111,18 +127,22 @@ func (c *Client) postNewTaskWebhook(taskID int, title, url, body, assignedOperat
 		},
 	}
 	b, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", c.webhook, bytes.NewReader(b))
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", c.webhook, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Error().Err(err).Msg("failed to close slack response body")
+		}
+	}()
 	return nil
 }
 
 // NotifyTaskAssigned posts to thread that task was assigned
-func (c *Client) NotifyTaskAssigned(parentMsg *SlackMessage, taskID int, assigneeName string) error {
+func (c *Client) NotifyTaskAssigned(parentMsg *Message, taskID int, assigneeName string) error {
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
@@ -138,7 +158,7 @@ func (c *Client) NotifyTaskAssigned(parentMsg *SlackMessage, taskID int, assigne
 }
 
 // NotifyTaskCompleted posts to thread that task was completed
-func (c *Client) NotifyTaskCompleted(parentMsg *SlackMessage, taskID int, title string) error {
+func (c *Client) NotifyTaskCompleted(parentMsg *Message, taskID int, title string) error {
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
@@ -154,7 +174,7 @@ func (c *Client) NotifyTaskCompleted(parentMsg *SlackMessage, taskID int, title 
 }
 
 // NotifyTaskReopened posts to thread that task was reopened
-func (c *Client) NotifyTaskReopened(parentMsg *SlackMessage, taskID int, title string, assigneeName string) error {
+func (c *Client) NotifyTaskReopened(parentMsg *Message, taskID int, title string, assigneeName string) error {
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
@@ -177,7 +197,7 @@ func (c *Client) NotifyTaskReopened(parentMsg *SlackMessage, taskID int, title s
 }
 
 // UpdateTaskStatusCompleted updates the original message to show completed status
-func (c *Client) UpdateTaskStatusCompleted(parentMsg *SlackMessage, taskID int, title, url, assignedOperator string) error {
+func (c *Client) UpdateTaskStatusCompleted(parentMsg *Message, taskID int, title, url, assignedOperator string) error {
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
@@ -196,7 +216,7 @@ func (c *Client) UpdateTaskStatusCompleted(parentMsg *SlackMessage, taskID int, 
 }
 
 // UpdateTaskStatusReopened updates the original message to show reopened status
-func (c *Client) UpdateTaskStatusReopened(parentMsg *SlackMessage, taskID int, title, url, assignedOperator string) error {
+func (c *Client) UpdateTaskStatusReopened(parentMsg *Message, taskID int, title, url, assignedOperator string) error {
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
@@ -215,7 +235,7 @@ func (c *Client) UpdateTaskStatusReopened(parentMsg *SlackMessage, taskID int, t
 }
 
 // NotifySLAViolation posts to thread about SLA violation and mentions channel
-func (c *Client) NotifySLAViolation(parentMsg *SlackMessage, taskID int, title string, violationType string) error {
+func (c *Client) NotifySLAViolation(parentMsg *Message, taskID int, title string, violationType string) error {
 	if c.botToken == "" || c.channelID == "" || parentMsg == nil {
 		return nil
 	}
@@ -240,9 +260,9 @@ func (c *Client) NotifySLAViolation(parentMsg *SlackMessage, taskID int, title s
 	return err
 }
 
-func (c *Client) callSlackAPI(method string, payload map[string]any) (*SlackMessage, error) {
+func (c *Client) callSlackAPI(method string, payload map[string]any) (*Message, error) {
 	b, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", "https://slack.com/api/"+method, bytes.NewReader(b))
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", "https://slack.com/api/"+method, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.botToken)
 
@@ -250,12 +270,16 @@ func (c *Client) callSlackAPI(method string, payload map[string]any) (*SlackMess
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Error().Err(err).Msg("failed to close slack API response body")
+		}
+	}()
 
 	var result struct {
-		OK      bool         `json:"ok"`
-		Error   string       `json:"error,omitempty"`
-		Message SlackMessage `json:"message,omitempty"`
+		OK      bool    `json:"ok"`
+		Error   string  `json:"error,omitempty"`
+		Message Message `json:"message,omitempty"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

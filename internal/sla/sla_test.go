@@ -26,7 +26,7 @@ type MockTaskMessage struct {
 	TaskID int64
 }
 
-func (m *MockOdooClient) ListRecentlyChangedTasks(ctx context.Context, since time.Time) ([]*MockTask, error) {
+func (m *MockOdooClient) ListRecentlyChangedTasks(_ context.Context, _ time.Time) ([]*MockTask, error) {
 	// Return mock tasks - in real implementation this would be []*odoo.Task
 	return m.tasks, nil
 }
@@ -40,7 +40,7 @@ func (m *MockOdooClient) IsTaskDone(task *MockTask, doneStageIDs []int64) bool {
 	return false
 }
 
-func (m *MockOdooClient) MessagePostCustomer(ctx context.Context, taskID, customerPartnerID int64, body string) error {
+func (m *MockOdooClient) MessagePostCustomer(_ context.Context, _, _ int64, _ string) error {
 	return nil
 }
 
@@ -55,7 +55,7 @@ type MockNotification struct {
 	ViolationType string
 }
 
-func (m *MockSlackClient) NotifySLAViolation(parentMsg interface{}, taskID int, title string, violationType string) error {
+func (m *MockSlackClient) NotifySLAViolation(_ interface{}, taskID int, title string, violationType string) error {
 	m.notifications = append(m.notifications, MockNotification{
 		TaskID:        taskID,
 		Title:         title,
@@ -71,7 +71,7 @@ func TestHandler_InitializeTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create state store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	cfg := &config.Config{
 		App: config.App{
@@ -150,7 +150,7 @@ func TestSLAState_Serialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create state store: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	now := time.Now().UTC().Truncate(time.Second)
 	startTime := now.Add(1 * time.Hour)

@@ -1,3 +1,4 @@
+// Package sla provides Service Level Agreement monitoring and violation detection for tickets.
 package sla
 
 import (
@@ -9,6 +10,11 @@ import (
 	"github.com/anaryk/odoo-helpdesk-bridge/internal/odoo"
 	"github.com/anaryk/odoo-helpdesk-bridge/internal/slack"
 	"github.com/anaryk/odoo-helpdesk-bridge/internal/state"
+)
+
+const (
+	// extraBufferHours provides additional buffer time for SLA violation checking
+	extraBufferHours = 24
 )
 
 // Handler manages SLA monitoring and violations
@@ -41,7 +47,7 @@ func (h *Handler) InitializeTask(taskID int64) error {
 // CheckSLAViolations checks for SLA violations and sends notifications
 func (h *Handler) CheckSLAViolations(ctx context.Context) error {
 	// Get recent tasks that might have SLA violations (optimized for SLA checking)
-	since := time.Now().Add(-time.Duration(h.cfg.App.SLA.ResolutionTimeHours+24) * time.Hour)
+	since := time.Now().Add(-time.Duration(h.cfg.App.SLA.ResolutionTimeHours+extraBufferHours) * time.Hour)
 	tasks, err := h.odooClient.ListRecentlyChangedTasksForSLA(ctx, since)
 	if err != nil {
 		return fmt.Errorf("failed to get recent tasks: %w", err)
@@ -161,7 +167,7 @@ func (h *Handler) notifySlackSLAViolation(task *odoo.Task, violationType string)
 		return nil
 	}
 
-	parentMsg := &slack.SlackMessage{
+	parentMsg := &slack.Message{
 		Timestamp: slackMsg.Timestamp,
 		Channel:   slackMsg.Channel,
 	}

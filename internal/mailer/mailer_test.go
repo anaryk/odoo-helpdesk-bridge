@@ -141,10 +141,8 @@ func TestSMTPClient_EmailFormat(t *testing.T) {
 				if expectedFormat != tt.expectedFrom {
 					t.Errorf("Expected from format %s, got %s", tt.expectedFrom, expectedFormat)
 				}
-			} else {
-				if tt.cfg.FromEmail != tt.expectedFrom {
-					t.Errorf("Expected from email %s, got %s", tt.expectedFrom, tt.cfg.FromEmail)
-				}
+			} else if tt.cfg.FromEmail != tt.expectedFrom {
+				t.Errorf("Expected from email %s, got %s", tt.expectedFrom, tt.cfg.FromEmail)
 			}
 
 			// Test that client was created correctly
