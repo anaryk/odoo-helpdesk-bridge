@@ -357,7 +357,7 @@ func extractBodyFromRawEmail(rawEmail string) string {
 
 	body := strings.Join(bodyLines, "\n")
 	body = strings.TrimSpace(body)
-	
+
 	log.Debug().Int("body_length", len(body)).Msg("extracted body from raw email")
 	return body
 }
