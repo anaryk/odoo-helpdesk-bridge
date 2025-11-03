@@ -364,6 +364,13 @@ func (cl *Client) MarkSeen(ctx context.Context, uid uint32) error {
 
 // markSeenWithRetry implements MarkSeen with automatic reconnection
 func (cl *Client) markSeenWithRetry(ctx context.Context, uid uint32, retryCount int) error {
+	// Check if context was cancelled
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	seq := new(imap.SeqSet)
 	seq.AddNum(uid)
 	flags := []interface{}{imap.SeenFlag}
