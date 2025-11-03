@@ -20,12 +20,13 @@ const (
 )
 
 var (
-	bProcessedEmails = []byte("processed_emails")
-	bOdooMsgSent     = []byte("odoo_msg_sent")
-	bLastOdooMsgTime = []byte("last_odoo_msg_time")
-	bClosedNotified  = []byte("closed_notified")
-	bSlackMessages   = []byte("slack_messages")
-	bSLAStates       = []byte("sla_states")
+	bProcessedEmails  = []byte("processed_emails")
+	bOdooMsgSent      = []byte("odoo_msg_sent")
+	bLastOdooMsgTime  = []byte("last_odoo_msg_time")
+	bClosedNotified   = []byte("closed_notified")
+	bReopenedNotified = []byte("reopened_notified")
+	bSlackMessages    = []byte("slack_messages")
+	bSLAStates        = []byte("sla_states")
 )
 
 // Store provides persistent key-value storage using BBolt database.
@@ -38,7 +39,7 @@ func New(path string) (*Store, error) {
 		return nil, err
 	}
 	if err := db.Update(func(tx *bbolt.Tx) error {
-		for _, b := range [][]byte{bProcessedEmails, bOdooMsgSent, bLastOdooMsgTime, bClosedNotified, bSlackMessages, bSLAStates} {
+		for _, b := range [][]byte{bProcessedEmails, bOdooMsgSent, bLastOdooMsgTime, bClosedNotified, bReopenedNotified, bSlackMessages, bSLAStates} {
 			if _, e := tx.CreateBucketIfNotExists(b); e != nil {
 				return e
 			}
@@ -122,6 +123,31 @@ func (s *Store) IsTaskClosedNotified(id int64) bool {
 func (s *Store) MarkTaskClosedNotified(id int64) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		return tx.Bucket(bClosedNotified).Put(itob(id), []byte("1"))
+	})
+}
+
+// IsTaskReopenedNotified checks if a task reopened notification has been sent.
+func (s *Store) IsTaskReopenedNotified(id int64) bool {
+	var ok bool
+	_ = s.db.View(func(tx *bbolt.Tx) error {
+		ok = tx.Bucket(bReopenedNotified).Get(itob(id)) != nil
+		return nil
+	})
+	return ok
+}
+
+// MarkTaskReopenedNotified marks a task as having its reopened notification sent.
+func (s *Store) MarkTaskReopenedNotified(id int64) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket(bReopenedNotified).Put(itob(id), []byte("1"))
+	})
+}
+
+// ClearTaskReopenedNotified removes the reopened notification flag for a task.
+// This should be called when a task is closed again to allow future reopened notifications.
+func (s *Store) ClearTaskReopenedNotified(id int64) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket(bReopenedNotified).Delete(itob(id))
 	})
 }
 

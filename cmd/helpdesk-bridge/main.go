@@ -428,16 +428,15 @@ func processIncoming(
 	return nil
 }
 
-func processOdooEvents(
+// processOdooPublicMessages handles processing of public messages from Odoo
+func processOdooPublicMessages(
 	ctx context.Context,
 	cfg *config.Config,
 	oc *odoo.Client,
 	st *state.Store,
 	tm *templ.Engine,
 	m *mailer.SMTPClient,
-	sl *slack.Client,
 ) error {
-	// veřejné komentáře [public] -> e-mail zákazníkovi
 	lastTS := st.GetLastOdooMessageTime()
 	msgs, err := oc.ListTaskMessagesSince(ctx, lastTS)
 	if err != nil {
@@ -488,12 +487,20 @@ func processOdooEvents(
 	if maxSeen.After(lastTS) {
 		_ = st.SetLastOdooMessageTime(maxSeen)
 	}
+	return nil
+}
 
-	// uzavřený task -> jednorázové info (optimized to reduce API calls)
-	basicTasks, err := oc.ListRecentlyChangedTasksForSLA(ctx, time.Now().Add(-48*time.Hour))
-	if err != nil {
-		return err
-	}
+// processCompletedTasks handles processing of completed tasks
+func processCompletedTasks(
+	ctx context.Context,
+	cfg *config.Config,
+	oc *odoo.Client,
+	st *state.Store,
+	tm *templ.Engine,
+	m *mailer.SMTPClient,
+	sl *slack.Client,
+	basicTasks []*odoo.Task,
+) error {
 	for _, basicTask := range basicTasks {
 		if st.IsTaskClosedNotified(basicTask.ID) {
 			continue
@@ -539,8 +546,99 @@ func processOdooEvents(
 			log.Error().Err(err).Str("email", t.CustomerEmail).Msg("send close")
 		} else {
 			_ = st.MarkTaskClosedNotified(t.ID)
+			// Clear reopened notification flag since task is now closed
+			_ = st.ClearTaskReopenedNotified(t.ID)
 		}
 	}
+	return nil
+}
+
+// processReopenedTasks handles processing of reopened tasks
+func processReopenedTasks(
+	ctx context.Context,
+	cfg *config.Config,
+	oc *odoo.Client,
+	st *state.Store,
+	sl *slack.Client,
+	basicTasks []*odoo.Task,
+) error {
+	for _, basicTask := range basicTasks {
+		// Skip if task is currently done or if we already notified about reopening
+		if oc.IsTaskDone(basicTask, cfg.App.DoneStageIDs) || st.IsTaskReopenedNotified(basicTask.ID) {
+			continue
+		}
+
+		// Only process if task was previously closed (has closed notification)
+		if !st.IsTaskClosedNotified(basicTask.ID) {
+			continue
+		}
+
+		// Get full task details for reopened task
+		t, err := oc.GetTask(ctx, basicTask.ID)
+		if err != nil || t.CustomerEmail == "" {
+			continue
+		}
+
+		log.Info().Int64("task_id", t.ID).Str("name", t.Name).Msg("processing reopened task")
+
+		// Update Slack message and notify in thread about task reopening
+		if parentMsg, err := st.GetSlackMessage(t.ID); err == nil && parentMsg != nil {
+			slackMsg := &slack.Message{
+				Timestamp: parentMsg.Timestamp,
+				Channel:   parentMsg.Channel,
+			}
+
+			// Update original message with reopened status
+			assignedName := t.AssignedUserName
+			if assignedName == "" {
+				assignedName = defaultOperatorName
+			}
+			if err := sl.UpdateTaskStatusReopened(slackMsg, int(t.ID), t.Name, t.TaskURL, assignedName); err != nil {
+				log.Error().Err(err).Int64("task_id", t.ID).Msg("slack update task reopened")
+			}
+
+			// Notify @channel in thread about reopened task
+			if err := sl.NotifyTaskReopened(slackMsg, int(t.ID), t.Name, assignedName); err != nil {
+				log.Error().Err(err).Int64("task_id", t.ID).Msg("slack notify task reopened")
+			}
+		}
+
+		// Mark as notified to avoid duplicate notifications
+		_ = st.MarkTaskReopenedNotified(t.ID)
+	}
+	return nil
+}
+
+func processOdooEvents(
+	ctx context.Context,
+	cfg *config.Config,
+	oc *odoo.Client,
+	st *state.Store,
+	tm *templ.Engine,
+	m *mailer.SMTPClient,
+	sl *slack.Client,
+) error {
+	// Process public messages (comments -> emails to customers)
+	if err := processOdooPublicMessages(ctx, cfg, oc, st, tm, m); err != nil {
+		return err
+	}
+
+	// Get recently changed tasks for processing completed and reopened tasks
+	basicTasks, err := oc.ListRecentlyChangedTasksForSLA(ctx, time.Now().Add(-48*time.Hour))
+	if err != nil {
+		return err
+	}
+
+	// Process completed tasks
+	if err := processCompletedTasks(ctx, cfg, oc, st, tm, m, sl, basicTasks); err != nil {
+		return err
+	}
+
+	// Process reopened tasks
+	if err := processReopenedTasks(ctx, cfg, oc, st, sl, basicTasks); err != nil {
+		return err
+	}
+
 	return nil
 }
 

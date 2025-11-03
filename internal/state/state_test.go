@@ -235,3 +235,98 @@ func TestStore_Persistence(t *testing.T) {
 		t.Error("Data should persist after reopening store")
 	}
 }
+
+func TestStore_TaskReopenedNotification(t *testing.T) {
+	// Create temporary database file
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	taskID := int64(12345)
+
+	// Initially, task should not have reopened notification
+	notified := store.IsTaskReopenedNotified(taskID)
+	if notified {
+		t.Error("Task should not have reopened notification initially")
+	}
+
+	// Mark task as having reopened notification sent
+	err = store.MarkTaskReopenedNotified(taskID)
+	if err != nil {
+		t.Fatalf("MarkTaskReopenedNotified failed: %v", err)
+	}
+
+	// Now task should have reopened notification flag
+	notified = store.IsTaskReopenedNotified(taskID)
+	if !notified {
+		t.Error("Task should have reopened notification after marking")
+	}
+
+	// Clear the reopened notification flag
+	err = store.ClearTaskReopenedNotified(taskID)
+	if err != nil {
+		t.Fatalf("ClearTaskReopenedNotified failed: %v", err)
+	}
+
+	// Task should no longer have reopened notification flag
+	notified = store.IsTaskReopenedNotified(taskID)
+	if notified {
+		t.Error("Task should not have reopened notification after clearing")
+	}
+}
+
+func TestStore_TaskReopenedNotificationPersistence(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+	taskID := int64(67890)
+
+	// Create store and mark task as reopened notified
+	store1, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+
+	err = store1.MarkTaskReopenedNotified(taskID)
+	if err != nil {
+		t.Fatalf("MarkTaskReopenedNotified failed: %v", err)
+	}
+
+	_ = store1.Close()
+
+	// Reopen store and verify reopened notification persists
+	store2, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to reopen store: %v", err)
+	}
+	defer func() { _ = store2.Close() }()
+
+	notified := store2.IsTaskReopenedNotified(taskID)
+	if !notified {
+		t.Error("Reopened notification should persist after reopening store")
+	}
+
+	// Test clearing and persistence
+	err = store2.ClearTaskReopenedNotified(taskID)
+	if err != nil {
+		t.Fatalf("ClearTaskReopenedNotified failed: %v", err)
+	}
+
+	_ = store2.Close()
+
+	// Reopen again and verify clear persisted
+	store3, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to reopen store: %v", err)
+	}
+	defer func() { _ = store3.Close() }()
+
+	notified = store3.IsTaskReopenedNotified(taskID)
+	if notified {
+		t.Error("Cleared reopened notification should persist after reopening store")
+	}
+}
