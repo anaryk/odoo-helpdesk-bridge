@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -37,6 +38,10 @@ const (
 
 	// base64Encoding constant value
 	base64Encoding = "base64"
+
+	// Connection retry constants
+	maxRetryAttempts = 3
+	retryDelay       = 5 * time.Second
 )
 
 // Config holds IMAP client configuration parameters.
@@ -54,25 +59,36 @@ type Client struct {
 
 // New creates a new IMAP client with the given configuration.
 func New(cfg Config) (*Client, error) {
-	addr := net.JoinHostPort(cfg.Host, itoa(cfg.Port))
+	cl := &Client{cfg: cfg}
+	err := cl.connect()
+	if err != nil {
+		return nil, err
+	}
+	return cl, nil
+}
+
+// connect establishes a connection to the IMAP server
+func (cl *Client) connect() error {
+	addr := net.JoinHostPort(cl.cfg.Host, itoa(cl.cfg.Port))
 	tlsConf := &tls.Config{
-		ServerName: cfg.Host,
+		ServerName: cl.cfg.Host,
 		MinVersion: tls.VersionTLS12,
 	}
 	c, err := client.DialTLS(addr, tlsConf)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if err := c.Login(cfg.Username, cfg.Password); err != nil {
+	if err := c.Login(cl.cfg.Username, cl.cfg.Password); err != nil {
 		_ = c.Logout()
-		return nil, err
+		return err
 	}
-	cl := &Client{cfg: cfg, c: c}
-	if err := cl.selectFolder(cfg.Folder); err != nil {
+	cl.c = c
+	if err := cl.selectFolder(cl.cfg.Folder); err != nil {
 		_ = c.Logout()
-		return nil, err
+		return err
 	}
-	return cl, nil
+	log.Debug().Str("host", cl.cfg.Host).Str("folder", cl.cfg.Folder).Msg("IMAP connection established")
+	return nil
 }
 
 // Close closes the IMAP connection and logs out from the server.
@@ -81,6 +97,62 @@ func (cl *Client) Close() error {
 		_ = cl.c.Logout()
 	}
 	return nil
+}
+
+// isConnectionError checks if the error is related to connection issues
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	connectionErrors := []string{
+		"connection closed",
+		"broken pipe",
+		"connection reset",
+		"no route to host",
+		"network is unreachable",
+		"connection timed out",
+		"connection refused",
+		"eof",
+	}
+
+	for _, connErr := range connectionErrors {
+		if strings.Contains(errStr, connErr) {
+			return true
+		}
+	}
+	return false
+}
+
+// reconnect attempts to reconnect to the IMAP server with retry logic
+func (cl *Client) reconnect() error {
+	log.Warn().Msg("attempting to reconnect to IMAP server")
+
+	// Close existing connection
+	if cl.c != nil {
+		_ = cl.c.Logout()
+		cl.c = nil
+	}
+
+	// Retry connection with backoff
+	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
+		log.Debug().Int("attempt", attempt).Int("max_attempts", maxRetryAttempts).Msg("reconnection attempt")
+
+		err := cl.connect()
+		if err == nil {
+			log.Info().Int("attempt", attempt).Msg("IMAP reconnection successful")
+			return nil
+		}
+
+		log.Warn().Err(err).Int("attempt", attempt).Msg("reconnection attempt failed")
+
+		if attempt < maxRetryAttempts {
+			log.Debug().Dur("delay", retryDelay).Msg("waiting before next reconnection attempt")
+			time.Sleep(retryDelay)
+		}
+	}
+
+	return fmt.Errorf("failed to reconnect after %d attempts", maxRetryAttempts)
 }
 
 func (cl *Client) selectFolder(name string) error {
@@ -110,10 +182,18 @@ type Email struct {
 
 // FetchUnseen retrieves all unseen emails from the configured IMAP folder.
 func (cl *Client) FetchUnseen(ctx context.Context) ([]Email, error) {
+	return cl.fetchUnseenWithRetry(ctx, 0)
+}
+
+// fetchUnseenWithRetry implements the FetchUnseen logic with automatic reconnection
+func (cl *Client) fetchUnseenWithRetry(ctx context.Context, retryCount int) ([]Email, error) {
 	log.Debug().Str("folder", cl.cfg.Folder).Str("search_to", cl.cfg.SearchTo).Msg("searching for unseen emails")
 
 	// First, get mailbox status
 	status, err := cl.c.Status(cl.cfg.Folder, []imap.StatusItem{imap.StatusMessages, imap.StatusUnseen})
+	if err != nil && isConnectionError(err) {
+		return cl.handleFetchError(ctx, err, retryCount)
+	}
 	if err == nil {
 		log.Debug().Uint32("total_messages", status.Messages).Uint32("unseen_count", status.Unseen).Msg("mailbox status")
 	}
@@ -130,7 +210,7 @@ func (cl *Client) FetchUnseen(ctx context.Context) ([]Email, error) {
 
 	uids, err := cl.c.Search(crit)
 	if err != nil {
-		return nil, err
+		return cl.handleFetchError(ctx, err, retryCount)
 	}
 
 	log.Debug().Int("count", len(uids)).Interface("uids", uids).Msg("found unseen message UIDs")
@@ -185,7 +265,7 @@ func (cl *Client) FetchUnseen(ctx context.Context) ([]Email, error) {
 			fetchCompleted = true
 			if err != nil {
 				log.Debug().Err(err).Msg("UidFetch failed")
-				return out, err
+				return cl.handleFetchError(ctx, err, retryCount)
 			}
 			log.Debug().Msg("UidFetch completed, waiting for remaining messages")
 		case msg, ok := <-ch:
@@ -253,15 +333,63 @@ func (cl *Client) FetchUnseen(ctx context.Context) ([]Email, error) {
 	}
 }
 
+// wrapper around fetchUnseenWithRetry to handle connection errors and retry
+func (cl *Client) handleFetchError(ctx context.Context, err error, retryCount int) ([]Email, error) {
+	if !isConnectionError(err) {
+		// Not a connection error, return as-is
+		return nil, err
+	}
+
+	if retryCount >= maxRetryAttempts {
+		log.Error().Err(err).Int("retry_count", retryCount).Msg("max retry attempts reached for IMAP fetch")
+		return nil, err
+	}
+
+	log.Warn().Err(err).Int("retry_count", retryCount).Msg("IMAP connection error detected, attempting reconnect")
+
+	// Try to reconnect
+	if reconnectErr := cl.reconnect(); reconnectErr != nil {
+		log.Error().Err(reconnectErr).Msg("failed to reconnect to IMAP server")
+		return nil, reconnectErr
+	}
+
+	// Retry the operation
+	return cl.fetchUnseenWithRetry(ctx, retryCount+1)
+}
+
 // MarkSeen marks an email as seen and optionally adds a custom processed keyword.
-func (cl *Client) MarkSeen(_ context.Context, uid uint32) error {
+func (cl *Client) MarkSeen(ctx context.Context, uid uint32) error {
+	return cl.markSeenWithRetry(ctx, uid, 0)
+}
+
+// markSeenWithRetry implements MarkSeen with automatic reconnection
+func (cl *Client) markSeenWithRetry(ctx context.Context, uid uint32, retryCount int) error {
 	seq := new(imap.SeqSet)
 	seq.AddNum(uid)
 	flags := []interface{}{imap.SeenFlag}
 	if kw := strings.TrimSpace(cl.cfg.ProcessedKeyword); kw != "" {
 		flags = append(flags, kw)
 	}
-	return cl.c.UidStore(seq, imap.AddFlags, flags, nil)
+
+	err := cl.c.UidStore(seq, imap.AddFlags, flags, nil)
+	if err != nil && isConnectionError(err) {
+		if retryCount >= maxRetryAttempts {
+			log.Error().Err(err).Uint32("uid", uid).Int("retry_count", retryCount).Msg("max retry attempts reached for IMAP MarkSeen")
+			return err
+		}
+
+		log.Warn().Err(err).Uint32("uid", uid).Int("retry_count", retryCount).Msg("IMAP connection error in MarkSeen, attempting reconnect")
+
+		if reconnectErr := cl.reconnect(); reconnectErr != nil {
+			log.Error().Err(reconnectErr).Msg("failed to reconnect to IMAP server in MarkSeen")
+			return reconnectErr
+		}
+
+		// Retry the operation
+		return cl.markSeenWithRetry(ctx, uid, retryCount+1)
+	}
+
+	return err
 }
 
 // --- helpers ---

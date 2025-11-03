@@ -288,3 +288,85 @@ func TestGetExtensionForContentType(t *testing.T) {
 		})
 	}
 }
+
+func TestIsConnectionError(t *testing.T) {
+	tests := []struct {
+		name     string
+		errMsg   string
+		expected bool
+	}{
+		{
+			name:     "connection closed error",
+			errMsg:   "imap: connection closed",
+			expected: true,
+		},
+		{
+			name:     "broken pipe error",
+			errMsg:   "write tcp: broken pipe",
+			expected: true,
+		},
+		{
+			name:     "connection reset error",
+			errMsg:   "read tcp: connection reset by peer",
+			expected: true,
+		},
+		{
+			name:     "EOF error",
+			errMsg:   "EOF",
+			expected: true,
+		},
+		{
+			name:     "timeout error",
+			errMsg:   "connection timed out",
+			expected: true,
+		},
+		{
+			name:     "network unreachable error",
+			errMsg:   "network is unreachable",
+			expected: true,
+		},
+		{
+			name:     "connection refused error",
+			errMsg:   "connection refused",
+			expected: true,
+		},
+		{
+			name:     "case insensitive matching",
+			errMsg:   "CONNECTION CLOSED",
+			expected: true,
+		},
+		{
+			name:     "other error",
+			errMsg:   "some authentication error",
+			expected: false,
+		},
+		{
+			name:     "empty error message",
+			errMsg:   "",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			if tt.errMsg != "" {
+				err = &testError{msg: tt.errMsg}
+			}
+
+			result := isConnectionError(err)
+			if result != tt.expected {
+				t.Errorf("isConnectionError(%v) = %v, want %v", tt.errMsg, result, tt.expected)
+			}
+		})
+	}
+}
+
+// testError is a helper type for testing error detection
+type testError struct {
+	msg string
+}
+
+func (e *testError) Error() string {
+	return e.msg
+}
