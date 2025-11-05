@@ -521,11 +521,22 @@ func processCompletedTasks(
 	log.Debug().Int("count", len(basicTasks)).Msg("processCompletedTasks: starting")
 	for _, basicTask := range basicTasks {
 		log.Debug().Int64("task_id", basicTask.ID).Str("name", basicTask.Name).Msg("processCompletedTasks: checking task")
-		if st.IsTaskClosedNotified(basicTask.ID) {
+
+		isClosedNotified := st.IsTaskClosedNotified(basicTask.ID)
+		isTaskDone := oc.IsTaskDone(basicTask, cfg.App.DoneStageIDs)
+
+		log.Debug().Int64("task_id", basicTask.ID).
+			Bool("closed_notified", isClosedNotified).
+			Bool("is_done", isTaskDone).
+			Int64("stage_id", basicTask.StageID).
+			Str("stage_name", basicTask.StageName).
+			Msg("processCompletedTasks: task state analysis")
+
+		if isClosedNotified {
 			log.Debug().Int64("task_id", basicTask.ID).Msg("processCompletedTasks: task already notified, skipping")
 			continue
 		}
-		if !oc.IsTaskDone(basicTask, cfg.App.DoneStageIDs) {
+		if !isTaskDone {
 			log.Debug().Int64("task_id", basicTask.ID).Msg("processCompletedTasks: task not done, skipping")
 			continue
 		}
@@ -537,6 +548,28 @@ func processCompletedTasks(
 		if err != nil || t.CustomerEmail == "" {
 			continue
 		}
+
+		log.Info().Int64("task_id", t.ID).Str("customer_email", t.CustomerEmail).Msg("processCompletedTasks: sending completion email")
+
+		subj, body, err := tm.RenderTicketClosed(cfg.App.TicketPrefix, int(t.ID), t.TaskURL, t.CustomerName)
+		if err != nil {
+			log.Error().Err(err).Int64("task_id", t.ID).Msg("tmpl close")
+			continue
+		}
+
+		log.Debug().Int64("task_id", t.ID).Str("subject", subj).Msg("processCompletedTasks: sending email")
+
+		if err := m.Send(t.CustomerEmail, subj, body); err != nil {
+			log.Error().Err(err).Str("email", t.CustomerEmail).Msg("send close")
+		} else {
+			log.Info().Int64("task_id", t.ID).Str("email", t.CustomerEmail).Msg("processCompletedTasks: email sent successfully")
+		}
+
+		// Always mark as notified and update Slack, regardless of email success
+		// This prevents the task from being processed again in the same cycle
+		_ = st.MarkTaskClosedNotified(t.ID)
+		// Clear reopened notification flag since task is now closed
+		_ = st.ClearTaskReopenedNotified(t.ID)
 
 		// Update Slack message and notify in thread about task completion
 		if parentMsg, err := st.GetSlackMessage(t.ID); err == nil && parentMsg != nil {
@@ -559,25 +592,6 @@ func processCompletedTasks(
 				log.Error().Err(err).Int64("task_id", t.ID).Msg("slack notify task completed")
 			}
 		}
-
-		log.Info().Int64("task_id", t.ID).Str("customer_email", t.CustomerEmail).Msg("processCompletedTasks: sending completion email")
-
-		subj, body, err := tm.RenderTicketClosed(cfg.App.TicketPrefix, int(t.ID), t.TaskURL, t.CustomerName)
-		if err != nil {
-			log.Error().Err(err).Int64("task_id", t.ID).Msg("tmpl close")
-			continue
-		}
-
-		log.Debug().Int64("task_id", t.ID).Str("subject", subj).Msg("processCompletedTasks: sending email")
-
-		if err := m.Send(t.CustomerEmail, subj, body); err != nil {
-			log.Error().Err(err).Str("email", t.CustomerEmail).Msg("send close")
-		} else {
-			log.Info().Int64("task_id", t.ID).Str("email", t.CustomerEmail).Msg("processCompletedTasks: email sent successfully")
-			_ = st.MarkTaskClosedNotified(t.ID)
-			// Clear reopened notification flag since task is now closed
-			_ = st.ClearTaskReopenedNotified(t.ID)
-		}
 	}
 	return nil
 }
@@ -594,13 +608,33 @@ func processReopenedTasks(
 	log.Debug().Int("count", len(basicTasks)).Msg("processReopenedTasks: starting")
 	for _, basicTask := range basicTasks {
 		log.Debug().Int64("task_id", basicTask.ID).Str("name", basicTask.Name).Msg("processReopenedTasks: checking task")
+
+		// Check individual conditions for better debugging
+		isTaskDone := oc.IsTaskDone(basicTask, cfg.App.DoneStageIDs)
+		isReopenedNotified := st.IsTaskReopenedNotified(basicTask.ID)
+		isClosedNotified := st.IsTaskClosedNotified(basicTask.ID)
+
+		log.Debug().Int64("task_id", basicTask.ID).
+			Bool("is_done", isTaskDone).
+			Bool("reopened_notified", isReopenedNotified).
+			Bool("closed_notified", isClosedNotified).
+			Int64("stage_id", basicTask.StageID).
+			Str("stage_name", basicTask.StageName).
+			Msg("processReopenedTasks: task state analysis")
+
 		// Skip if task is currently done or if we already notified about reopening
-		if oc.IsTaskDone(basicTask, cfg.App.DoneStageIDs) || st.IsTaskReopenedNotified(basicTask.ID) {
+		if isTaskDone || isReopenedNotified {
+			log.Debug().Int64("task_id", basicTask.ID).
+				Bool("skipped_done", isTaskDone).
+				Bool("skipped_reopened", isReopenedNotified).
+				Msg("processReopenedTasks: skipping task - done or already reopened")
 			continue
 		}
 
 		// Only process if task was previously closed (has closed notification)
-		if !st.IsTaskClosedNotified(basicTask.ID) {
+		if !isClosedNotified {
+			log.Debug().Int64("task_id", basicTask.ID).
+				Msg("processReopenedTasks: skipping task - was never closed")
 			continue
 		}
 
