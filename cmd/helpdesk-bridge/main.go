@@ -439,7 +439,7 @@ func processOdooPublicMessages(
 ) error {
 	log.Debug().Msg("processOdooPublicMessages: starting")
 	lastTS := st.GetLastOdooMessageTime()
-	msgs, err := oc.ListTaskMessagesSince(ctx, lastTS)
+	msgs, err := oc.ListTaskMessagesSince(ctx, int64(cfg.Odoo.ProjectID), lastTS)
 	if err != nil {
 		log.Error().Err(err).Msg("processOdooPublicMessages: ListTaskMessagesSince failed")
 		return err
@@ -659,8 +659,8 @@ func processOdooEvents(
 	}
 
 	// Get recently changed tasks for processing completed and reopened tasks
-	log.Debug().Msg("processOdooEvents: getting recently changed tasks")
-	basicTasks, err := oc.ListRecentlyChangedTasksForSLA(ctx, time.Now().Add(-48*time.Hour))
+	log.Debug().Int("project_id", cfg.Odoo.ProjectID).Msg("processOdooEvents: getting recently changed tasks for project")
+	basicTasks, err := oc.ListRecentlyChangedTasksForSLA(ctx, int64(cfg.Odoo.ProjectID), time.Now().Add(-48*time.Hour))
 	if err != nil {
 		log.Error().Err(err).Msg("processOdooEvents: ListRecentlyChangedTasksForSLA failed")
 		return err

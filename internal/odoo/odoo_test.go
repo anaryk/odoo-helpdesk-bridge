@@ -865,3 +865,622 @@ func TestReopenTask_GetTaskFails(t *testing.T) {
 		t.Errorf("Expected 'failed to get task' error, got: %v", err)
 	}
 }
+
+// Test comprehensive project filtering and user assignment detection
+func TestListTaskMessagesSince_ProjectFiltering(t *testing.T) {
+	callCount := 0
+	projectID := int64(11)
+	since := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		params := req["params"].(map[string]any)
+		args := params["args"].([]any)
+
+		switch callCount {
+		case 1: // Authentication
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": int64(42)}
+			_ = json.NewEncoder(w).Encode(response)
+		case 2: // Get task IDs for project
+			// Verify project.task search with correct project_id
+			model := args[3].(string)
+			method := args[4].(string)
+			domain := args[5].([]any)
+
+			if model != "project.task" || method != "search" {
+				t.Errorf("Expected project.task search, got %s.%s", model, method)
+			}
+
+			// Check domain contains project_id filter
+			domainStr := fmt.Sprintf("%v", domain)
+			if !strings.Contains(domainStr, "project_id") || !strings.Contains(domainStr, "11") {
+				t.Errorf("Domain should contain project_id=11 filter, got: %v", domain)
+			}
+
+			// Return task IDs for project 11
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": []int64{101, 102}}
+			_ = json.NewEncoder(w).Encode(response)
+		case 3: // Get messages for tasks
+			// Verify mail.message search with task IDs
+			model := args[3].(string)
+			method := args[4].(string)
+			domain := args[5].([]any)
+
+			if model != "mail.message" || method != "search" {
+				t.Errorf("Expected mail.message search, got %s.%s", model, method)
+			}
+
+			// Check domain contains res_id in [101, 102] and date filter
+			domainStr := fmt.Sprintf("%v", domain)
+			if !strings.Contains(domainStr, "res_id") || !strings.Contains(domainStr, "101") {
+				t.Errorf("Domain should contain res_id in task IDs, got: %v", domain)
+			}
+			if !strings.Contains(domainStr, "2023-01-01") {
+				t.Errorf("Domain should contain date filter, got: %v", domain)
+			}
+
+			// Return message IDs
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": []int64{201, 202}}
+			_ = json.NewEncoder(w).Encode(response)
+		case 4: // Read message details
+			// Return message data
+			messages := []map[string]any{
+				{
+					"id": 201, "res_id": 101, "body": "[public] Test message",
+					"date": "2023-01-02 10:00:00", "message_type": "comment",
+					"author_id": []any{int64(301), "Customer One"},
+				},
+				{
+					"id": 202, "res_id": 102, "body": "Internal message",
+					"date": "2023-01-02 11:00:00", "message_type": "comment",
+					"author_id": []any{int64(302), "Operator Two"},
+				},
+			}
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": messages}
+			_ = json.NewEncoder(w).Encode(response)
+		case 5, 6: // Partner operator checks
+			// Return empty for first (customer), user for second (operator)
+			var response map[string]any
+			if callCount == 5 {
+				response = map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": []int64{}}
+			} else {
+				response = map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": []int64{401}}
+			}
+			_ = json.NewEncoder(w).Encode(response)
+		}
+	}))
+	defer server.Close()
+
+	cfg := Config{URL: server.URL, DB: "test", User: "test", Pass: "test", Timeout: 5 * time.Second}
+	client, err := NewClient(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewClient() failed: %v", err)
+	}
+
+	messages, err := client.ListTaskMessagesSince(context.Background(), projectID, since)
+	if err != nil {
+		t.Fatalf("ListTaskMessagesSince() failed: %v", err)
+	}
+
+	if len(messages) != 2 {
+		t.Errorf("Expected 2 messages, got %d", len(messages))
+	}
+
+	// Verify first message (public, by customer)
+	if messages[0].TaskID != 101 || !messages[0].IsPublicPrefix || messages[0].ByOperator {
+		t.Errorf("First message should be task 101, public, by customer. Got: TaskID=%d, Public=%v, ByOperator=%v",
+			messages[0].TaskID, messages[0].IsPublicPrefix, messages[0].ByOperator)
+	}
+
+	// Verify second message (internal, by operator)
+	if messages[1].TaskID != 102 || messages[1].IsPublicPrefix || !messages[1].ByOperator {
+		t.Errorf("Second message should be task 102, internal, by operator. Got: TaskID=%d, Public=%v, ByOperator=%v",
+			messages[1].TaskID, messages[1].IsPublicPrefix, messages[1].ByOperator)
+	}
+
+	if callCount != 6 {
+		t.Errorf("Expected 6 API calls, got %d", callCount)
+	}
+}
+
+func TestListTaskMessagesSince_NoTasksInProject(t *testing.T) {
+	callCount := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		switch callCount {
+		case 1: // Authentication
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": int64(42)}
+			_ = json.NewEncoder(w).Encode(response)
+		case 2: // Get task IDs - return empty for project
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": []int64{}}
+			_ = json.NewEncoder(w).Encode(response)
+		}
+	}))
+	defer server.Close()
+
+	cfg := Config{URL: server.URL, DB: "test", User: "test", Pass: "test", Timeout: 5 * time.Second}
+	client, err := NewClient(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewClient() failed: %v", err)
+	}
+
+	messages, err := client.ListTaskMessagesSince(context.Background(), int64(99), time.Now())
+	if err != nil {
+		t.Fatalf("ListTaskMessagesSince() failed: %v", err)
+	}
+
+	if len(messages) != 0 {
+		t.Errorf("Expected 0 messages for empty project, got %d", len(messages))
+	}
+
+	if callCount != 2 {
+		t.Errorf("Expected 2 API calls, got %d", callCount)
+	}
+}
+
+func TestListRecentlyChangedTasks_ProjectFiltering(t *testing.T) {
+	callCount := 0
+	projectID := int64(11)
+	since := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		params := req["params"].(map[string]any)
+		args := params["args"].([]any)
+
+		switch callCount {
+		case 1: // Authentication
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": int64(42)}
+			_ = json.NewEncoder(w).Encode(response)
+		case 2: // Search tasks with project filter
+			model := args[3].(string)
+			method := args[4].(string)
+			domain := args[5].([]any)
+
+			if model != "project.task" || method != "search" {
+				t.Errorf("Expected project.task search, got %s.%s", model, method)
+			}
+
+			// Verify domain contains both write_date and project_id filters
+			domainStr := fmt.Sprintf("%v", domain)
+			if !strings.Contains(domainStr, "write_date") || !strings.Contains(domainStr, "2023-01-01") {
+				t.Errorf("Domain should contain write_date filter, got: %v", domain)
+			}
+			if !strings.Contains(domainStr, "project_id") || !strings.Contains(domainStr, "11") {
+				t.Errorf("Domain should contain project_id=11 filter, got: %v", domain)
+			}
+
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": []int64{101, 102}}
+			_ = json.NewEncoder(w).Encode(response)
+		case 3: // Read task details
+			tasks := []map[string]any{
+				{
+					"id": 101, "name": "Test Task 1",
+					"stage_id":   []any{int64(10), "In Progress"},
+					"partner_id": []any{int64(301), "Customer One"},
+					"user_ids":   []int64{401, 402}, // Multiple users assigned
+				},
+				{
+					"id": 102, "name": "Test Task 2",
+					"stage_id":   []any{int64(11), "Done"},
+					"partner_id": false,
+					"user_ids":   []int64{}, // No users assigned
+				},
+			}
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": tasks}
+			_ = json.NewEncoder(w).Encode(response)
+		case 4: // Get customer email for task 1
+			partners := []map[string]any{{"email": "customer@example.com"}}
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": partners}
+			_ = json.NewEncoder(w).Encode(response)
+		case 5, 6: // Get user names for task 1 (first user) and no user for task 2
+			var response map[string]any
+			if callCount == 5 {
+				users := []map[string]any{{"name": "Operator One"}}
+				response = map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": users}
+			} else {
+				users := []map[string]any{}
+				response = map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": users}
+			}
+			_ = json.NewEncoder(w).Encode(response)
+		}
+	}))
+	defer server.Close()
+
+	cfg := Config{URL: server.URL, DB: "test", User: "test", Pass: "test", Timeout: 5 * time.Second}
+	client, err := NewClient(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewClient() failed: %v", err)
+	}
+
+	tasks, err := client.ListRecentlyChangedTasks(context.Background(), projectID, since)
+	if err != nil {
+		t.Fatalf("ListRecentlyChangedTasks() failed: %v", err)
+	}
+
+	if len(tasks) != 2 {
+		t.Errorf("Expected 2 tasks, got %d", len(tasks))
+	}
+
+	// Verify first task (assigned to user, has customer)
+	task1 := tasks[0]
+	if task1.ID != 101 || task1.AssignedUserID != 401 || task1.AssignedUserName != "Operator One" {
+		t.Errorf("Task 1 should have ID=101, UserID=401, UserName='Operator One'. Got: ID=%d, UserID=%d, UserName='%s'",
+			task1.ID, task1.AssignedUserID, task1.AssignedUserName)
+	}
+	if task1.CustomerEmail != "customer@example.com" {
+		t.Errorf("Task 1 should have customer email 'customer@example.com', got '%s'", task1.CustomerEmail)
+	}
+
+	// Verify second task (no assignment, no customer)
+	task2 := tasks[1]
+	if task2.ID != 102 || task2.AssignedUserID != 0 || task2.AssignedUserName != "" {
+		t.Errorf("Task 2 should have ID=102, no assignment. Got: ID=%d, UserID=%d, UserName='%s'",
+			task2.ID, task2.AssignedUserID, task2.AssignedUserName)
+	}
+
+	if callCount != 5 {
+		t.Errorf("Expected 5 API calls (auth, search, read, email, user name), got %d", callCount)
+	}
+}
+
+func TestGetTask_UserAssignmentDetection(t *testing.T) {
+	callCount := 0
+	taskID := int64(101)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		switch callCount {
+		case 1: // Authentication
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": int64(42)}
+			_ = json.NewEncoder(w).Encode(response)
+		case 2: // Read task details
+			// Verify we're reading user_ids field (not user_id)
+			params := req["params"].(map[string]any)
+			args := params["args"].([]any)
+			if len(args) > 6 {
+				if fields, ok := args[6].([]any); ok {
+					fieldsStr := fmt.Sprintf("%v", fields)
+					if !strings.Contains(fieldsStr, "user_ids") {
+						t.Errorf("Should request user_ids field, got fields: %v", fields)
+					}
+					if strings.Contains(fieldsStr, "user_id") && !strings.Contains(fieldsStr, "user_ids") {
+						t.Errorf("Should use user_ids (Many2many) not user_id, got fields: %v", fields)
+					}
+				}
+			}
+
+			task := []map[string]any{{
+				"id": 101, "name": "Test Task with Assignment",
+				"stage_id":   []any{int64(10), "In Progress"},
+				"partner_id": []any{int64(301), "Customer One"},
+				"user_ids":   []int64{401, 402}, // Multiple users - test Many2many
+			}}
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": task}
+			_ = json.NewEncoder(w).Encode(response)
+		case 3: // Get customer email
+			partners := []map[string]any{{"email": "customer@example.com"}}
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": partners}
+			_ = json.NewEncoder(w).Encode(response)
+		case 4: // Get user name for first assigned user
+			users := []map[string]any{{"name": "Primary Operator"}}
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": users}
+			_ = json.NewEncoder(w).Encode(response)
+		}
+	}))
+	defer server.Close()
+
+	cfg := Config{URL: server.URL, DB: "test", User: "test", Pass: "test", Timeout: 5 * time.Second}
+	client, err := NewClient(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewClient() failed: %v", err)
+	}
+
+	task, err := client.GetTask(context.Background(), taskID)
+	if err != nil {
+		t.Fatalf("GetTask() failed: %v", err)
+	}
+
+	// Should pick first user from Many2many field
+	if task.AssignedUserID != 401 {
+		t.Errorf("Expected AssignedUserID=401 (first from user_ids), got %d", task.AssignedUserID)
+	}
+	if task.AssignedUserName != "Primary Operator" {
+		t.Errorf("Expected AssignedUserName='Primary Operator', got '%s'", task.AssignedUserName)
+	}
+
+	if callCount != 4 {
+		t.Errorf("Expected 4 API calls, got %d", callCount)
+	}
+}
+
+func TestGetTask_NoAssignment(t *testing.T) {
+	callCount := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		switch callCount {
+		case 1: // Authentication
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": int64(42)}
+			_ = json.NewEncoder(w).Encode(response)
+		case 2: // Read task with empty user_ids
+			task := []map[string]any{{
+				"id": 102, "name": "Unassigned Task",
+				"stage_id":   []any{int64(11), "Done"},
+				"partner_id": false,
+				"user_ids":   []int64{}, // Empty assignment
+			}}
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": task}
+			_ = json.NewEncoder(w).Encode(response)
+		}
+	}))
+	defer server.Close()
+
+	cfg := Config{URL: server.URL, DB: "test", User: "test", Pass: "test", Timeout: 5 * time.Second}
+	client, err := NewClient(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewClient() failed: %v", err)
+	}
+
+	task, err := client.GetTask(context.Background(), int64(102))
+	if err != nil {
+		t.Fatalf("GetTask() failed: %v", err)
+	}
+
+	// Should have no assignment
+	if task.AssignedUserID != 0 {
+		t.Errorf("Expected AssignedUserID=0 for unassigned task, got %d", task.AssignedUserID)
+	}
+	if task.AssignedUserName != "" {
+		t.Errorf("Expected empty AssignedUserName for unassigned task, got '%s'", task.AssignedUserName)
+	}
+
+	if callCount != 2 {
+		t.Errorf("Expected 2 API calls, got %d", callCount)
+	}
+}
+
+func TestListTaskMessagesSince_ErrorHandling(t *testing.T) {
+	// Test task search failure
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		// Auth succeeds, task search fails
+		if req["params"].(map[string]any)["method"] == "authenticate" {
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": int64(42)}
+			_ = json.NewEncoder(w).Encode(response)
+		} else {
+			response := map[string]any{
+				"jsonrpc": "2.0", "id": req["id"],
+				"error": map[string]any{"message": "Search failed", "code": 500},
+			}
+			_ = json.NewEncoder(w).Encode(response)
+		}
+	}))
+	defer server.Close()
+
+	cfg := Config{URL: server.URL, DB: "test", User: "test", Pass: "test", Timeout: 5 * time.Second}
+	client, err := NewClient(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewClient() failed: %v", err)
+	}
+
+	_, err = client.ListTaskMessagesSince(context.Background(), int64(11), time.Now())
+	if err == nil {
+		t.Fatal("ListTaskMessagesSince() should fail when task search fails")
+	}
+	if !strings.Contains(err.Error(), "failed to get tasks for project 11") {
+		t.Errorf("Expected project-specific error message, got: %v", err)
+	}
+}
+
+func TestListRecentlyChangedTasks_ErrorHandling(t *testing.T) {
+	callCount := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		switch callCount {
+		case 1: // Authentication
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": int64(42)}
+			_ = json.NewEncoder(w).Encode(response)
+		case 2: // Task search fails
+			response := map[string]any{
+				"jsonrpc": "2.0", "id": req["id"],
+				"error": map[string]any{"message": "Database error", "code": 500},
+			}
+			_ = json.NewEncoder(w).Encode(response)
+		}
+	}))
+	defer server.Close()
+
+	cfg := Config{URL: server.URL, DB: "test", User: "test", Pass: "test", Timeout: 5 * time.Second}
+	client, err := NewClient(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewClient() failed: %v", err)
+	}
+
+	_, err = client.ListRecentlyChangedTasks(context.Background(), int64(11), time.Now())
+	if err == nil {
+		t.Fatal("ListRecentlyChangedTasks() should fail when search fails")
+	}
+	if !strings.Contains(err.Error(), "Database error") {
+		t.Errorf("Expected database error message, got: %v", err)
+	}
+}
+
+func TestListRecentlyChangedTasksForSLA_ProjectFiltering(t *testing.T) {
+	callCount := 0
+	projectID := int64(11)
+	since := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+
+		var req map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		params := req["params"].(map[string]any)
+		args := params["args"].([]any)
+
+		switch callCount {
+		case 1: // Authentication
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": int64(42)}
+			_ = json.NewEncoder(w).Encode(response)
+		case 2: // Search tasks with project filter (SLA optimized)
+			model := args[3].(string)
+			method := args[4].(string)
+			domain := args[5].([]any)
+
+			if model != "project.task" || method != "search" {
+				t.Errorf("Expected project.task search, got %s.%s", model, method)
+			}
+
+			// Verify domain contains both write_date and project_id filters
+			domainStr := fmt.Sprintf("%v", domain)
+			if !strings.Contains(domainStr, "write_date") || !strings.Contains(domainStr, "2023-01-01") {
+				t.Errorf("Domain should contain write_date filter, got: %v", domain)
+			}
+			if !strings.Contains(domainStr, "project_id") || !strings.Contains(domainStr, "11") {
+				t.Errorf("Domain should contain project_id=11 filter, got: %v", domain)
+			}
+
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": []int64{101}}
+			_ = json.NewEncoder(w).Encode(response)
+		case 3: // Read task details (SLA optimized - fewer fields)
+			if len(args) > 6 {
+				if fields, ok := args[6].([]any); ok {
+					fieldsStr := fmt.Sprintf("%v", fields)
+
+					// SLA method should only read minimal fields
+					expectedFields := []string{"id", "name", "stage_id"}
+					for _, field := range expectedFields {
+						if !strings.Contains(fieldsStr, field) {
+							t.Errorf("SLA method should read field '%s', got fields: %v", field, fields)
+						}
+					}
+
+					// Should not read customer/user fields for SLA optimization
+					if strings.Contains(fieldsStr, "partner_id") || strings.Contains(fieldsStr, "user_ids") {
+						t.Errorf("SLA method should not read partner_id/user_ids for optimization, got fields: %v", fields)
+					}
+				}
+			}
+
+			tasks := []map[string]any{{
+				"id": 101, "name": "SLA Task",
+				"stage_id": []any{int64(10), "In Progress"},
+			}}
+			response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": tasks}
+			_ = json.NewEncoder(w).Encode(response)
+		}
+	}))
+	defer server.Close()
+
+	cfg := Config{URL: server.URL, DB: "test", User: "test", Pass: "test", Timeout: 5 * time.Second}
+	client, err := NewClient(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("NewClient() failed: %v", err)
+	}
+
+	tasks, err := client.ListRecentlyChangedTasksForSLA(context.Background(), projectID, since)
+	if err != nil {
+		t.Fatalf("ListRecentlyChangedTasksForSLA() failed: %v", err)
+	}
+
+	if len(tasks) != 1 {
+		t.Errorf("Expected 1 task, got %d", len(tasks))
+	}
+
+	// Verify task has minimal fields (SLA optimization)
+	task := tasks[0]
+	if task.ID != 101 || task.Name != "SLA Task" {
+		t.Errorf("Expected task ID=101, Name='SLA Task'. Got: ID=%d, Name='%s'", task.ID, task.Name)
+	}
+
+	// Should not have customer/assignment data (SLA optimization)
+	if task.CustomerEmail != "" || task.AssignedUserID != 0 {
+		t.Errorf("SLA task should not have customer/assignment data. Got: CustomerEmail='%s', AssignedUserID=%d",
+			task.CustomerEmail, task.AssignedUserID)
+	}
+
+	if callCount != 3 {
+		t.Errorf("Expected 3 API calls for SLA method, got %d", callCount)
+	}
+}
+
+func TestPartnerLooksLikeOperator_Scenarios(t *testing.T) {
+	tests := []struct {
+		name       string
+		partnerID  int64
+		hasUser    bool
+		expectedOp bool
+	}{
+		{"Customer (no user)", 301, false, false},
+		{"Operator (has user)", 401, true, true},
+		{"System partner", 0, false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callCount := 0
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				callCount++
+				var req map[string]any
+				_ = json.NewDecoder(r.Body).Decode(&req)
+
+				switch callCount {
+				case 1: // Authentication
+					response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": int64(42)}
+					_ = json.NewEncoder(w).Encode(response)
+				case 2: // User search
+					var result []int64
+					if tt.hasUser {
+						result = []int64{501} // User exists
+					} else {
+						result = []int64{} // No user
+					}
+					response := map[string]any{"jsonrpc": "2.0", "id": req["id"], "result": result}
+					_ = json.NewEncoder(w).Encode(response)
+				}
+			}))
+			defer server.Close()
+
+			cfg := Config{URL: server.URL, DB: "test", User: "test", Pass: "test", Timeout: 5 * time.Second}
+			client, err := NewClient(context.Background(), cfg)
+			if err != nil {
+				t.Fatalf("NewClient() failed: %v", err)
+			}
+
+			isOp := client.partnerLooksLikeOperator(context.Background(), tt.partnerID)
+			if isOp != tt.expectedOp {
+				t.Errorf("Expected partnerLooksLikeOperator()=%v for %s, got %v", tt.expectedOp, tt.name, isOp)
+			}
+		})
+	}
+}

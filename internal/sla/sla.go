@@ -48,7 +48,7 @@ func (h *Handler) InitializeTask(taskID int64) error {
 func (h *Handler) CheckSLAViolations(ctx context.Context) error {
 	// Get recent tasks that might have SLA violations (optimized for SLA checking)
 	since := time.Now().Add(-time.Duration(h.cfg.App.SLA.ResolutionTimeHours+extraBufferHours) * time.Hour)
-	tasks, err := h.odooClient.ListRecentlyChangedTasksForSLA(ctx, since)
+	tasks, err := h.odooClient.ListRecentlyChangedTasksForSLA(ctx, int64(h.cfg.Odoo.ProjectID), since)
 	if err != nil {
 		return fmt.Errorf("failed to get recent tasks: %w", err)
 	}

@@ -260,11 +260,27 @@ type TaskMessage struct {
 	IsPublicPrefix    bool // starts with [public]
 }
 
-// ListTaskMessagesSince retrieves task messages that have been created since the specified time.
-func (c *Client) ListTaskMessagesSince(ctx context.Context, since time.Time) ([]TaskMessage, error) {
-	// search mail.message by model=project.task and date > since
+// ListTaskMessagesSince retrieves task messages that have been created since the specified time for a specific project.
+func (c *Client) ListTaskMessagesSince(ctx context.Context, projectID int64, since time.Time) ([]TaskMessage, error) {
+	log.Debug().Int64("project_id", projectID).Time("since", since).Msg("fetching task messages for specific project")
+
+	// First get task IDs from the specific project
+	var taskIDs []int64
+	taskDomain := [][]any{{"project_id", "=", projectID}}
+	if err := c.execKW(ctx, "project.task", "search", []any{taskDomain}, nil, &taskIDs); err != nil {
+		return nil, fmt.Errorf("failed to get tasks for project %d: %w", projectID, err)
+	}
+	if len(taskIDs) == 0 {
+		log.Debug().Int64("project_id", projectID).Msg("no tasks found in project")
+		return nil, nil
+	}
+
+	// search mail.message by model=project.task and res_id in task_ids and date > since
 	var ids []int64
-	domain := [][]any{{"model", "=", "project.task"}}
+	domain := [][]any{
+		{"model", "=", "project.task"},
+		{"res_id", "in", taskIDs},
+	}
 	if !since.IsZero() {
 		domain = append(domain, []any{"date", ">", since.UTC().Format("2006-01-02 15:04:05")})
 	}
@@ -397,7 +413,7 @@ type Task struct {
 // GetTask retrieves a task by its ID from Odoo.
 func (c *Client) GetTask(ctx context.Context, id int64) (*Task, error) {
 	var rows []map[string]any
-	if err := c.execKW(ctx, "project.task", "read", []any{[]int64{id}, []string{"id", "name", "stage_id", "partner_id", "user_id"}}, nil, &rows); err != nil {
+	if err := c.execKW(ctx, "project.task", "read", []any{[]int64{id}, []string{"id", "name", "stage_id", "partner_id", "user_ids"}}, nil, &rows); err != nil {
 		return nil, err
 	}
 	if len(rows) == 0 {
@@ -422,13 +438,17 @@ func (c *Client) GetTask(ctx context.Context, id int64) (*Task, error) {
 		}
 	}
 
-	// Get assigned user info
-	userPair := anySlice(r["user_id"])
+	// Get assigned user info (user_ids is Many2many, take first user if any)
+	userIds := anySlice(r["user_ids"])
 	var assignedUserID int64
 	var assignedUserName string
-	if len(userPair) >= minFieldLength {
-		assignedUserID = toInt64(userPair[0])
-		assignedUserName = str(userPair[1])
+	if len(userIds) > 0 {
+		assignedUserID = toInt64(userIds[0])
+		// Get user name by ID
+		var userRows []map[string]any
+		if err := c.execKW(ctx, "res.users", "read", []any{[]int64{assignedUserID}, []string{"name"}}, nil, &userRows); err == nil && len(userRows) > 0 {
+			assignedUserName = str(userRows[0]["name"])
+		}
 	}
 
 	t := &Task{
@@ -454,10 +474,14 @@ func (c *Client) partnerEmailName(ctx context.Context, id int64) string {
 	return str(rows[0]["email"])
 }
 
-// ListRecentlyChangedTasks retrieves tasks that have been modified since the specified time.
-func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) ([]*Task, error) {
+// ListRecentlyChangedTasks retrieves tasks that have been modified since the specified time for a specific project.
+func (c *Client) ListRecentlyChangedTasks(ctx context.Context, projectID int64, since time.Time) ([]*Task, error) {
+	log.Debug().Int64("project_id", projectID).Time("since", since).Msg("fetching recently changed tasks for specific project")
 	var ids []int64
-	domain := [][]any{{"write_date", ">", since.UTC().Format("2006-01-02 15:04:05")}}
+	domain := [][]any{
+		{"write_date", ">", since.UTC().Format("2006-01-02 15:04:05")},
+		{"project_id", "=", projectID},
+	}
 	if err := c.execKW(ctx, "project.task", "search", []any{domain}, map[string]any{"limit": defaultQueryLimit}, &ids); err != nil {
 		return nil, err
 	}
@@ -465,7 +489,7 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) 
 		return nil, nil
 	}
 	var rows []map[string]any
-	if err := c.execKW(ctx, "project.task", "read", []any{ids, []string{"id", "name", "stage_id", "partner_id", "user_id"}}, nil, &rows); err != nil {
+	if err := c.execKW(ctx, "project.task", "read", []any{ids, []string{"id", "name", "stage_id", "partner_id", "user_ids"}}, nil, &rows); err != nil {
 		return nil, err
 	}
 	var out []*Task
@@ -489,13 +513,17 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) 
 			}
 		}
 
-		// Get assigned user info
-		userPair := anySlice(r["user_id"])
+		// Get assigned user info (user_ids is Many2many, take first user if any)
+		userIds := anySlice(r["user_ids"])
 		var assignedUserID int64
 		var assignedUserName string
-		if len(userPair) >= minFieldLength {
-			assignedUserID = toInt64(userPair[0])
-			assignedUserName = str(userPair[1])
+		if len(userIds) > 0 {
+			assignedUserID = toInt64(userIds[0])
+			// Get user name by ID
+			var userRows []map[string]any
+			if err := c.execKW(ctx, "res.users", "read", []any{[]int64{assignedUserID}, []string{"name"}}, nil, &userRows); err == nil && len(userRows) > 0 {
+				assignedUserName = str(userRows[0]["name"])
+			}
 		}
 
 		out = append(out, &Task{
@@ -512,9 +540,13 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, since time.Time) 
 }
 
 // ListRecentlyChangedTasksForSLA returns tasks changed since given time, optimized for SLA checking (no customer emails)
-func (c *Client) ListRecentlyChangedTasksForSLA(ctx context.Context, since time.Time) ([]*Task, error) {
+func (c *Client) ListRecentlyChangedTasksForSLA(ctx context.Context, projectID int64, since time.Time) ([]*Task, error) {
+	log.Debug().Int64("project_id", projectID).Time("since", since).Msg("fetching recently changed tasks for specific project")
 	var ids []int64
-	domain := [][]any{{"write_date", ">", since.UTC().Format("2006-01-02 15:04:05")}}
+	domain := [][]any{
+		{"write_date", ">", since.UTC().Format("2006-01-02 15:04:05")},
+		{"project_id", "=", projectID},
+	}
 	if err := c.execKW(ctx, "project.task", "search", []any{domain}, map[string]any{"limit": defaultQueryLimit}, &ids); err != nil {
 		return nil, err
 	}
