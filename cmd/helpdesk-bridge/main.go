@@ -524,13 +524,25 @@ func processCompletedTasks(
 
 		isClosedNotified := st.IsTaskClosedNotified(basicTask.ID)
 		isTaskDone := oc.IsTaskDone(basicTask, cfg.App.DoneStageIDs)
+		isReopenedNotified := st.IsTaskReopenedNotified(basicTask.ID)
 
 		log.Debug().Int64("task_id", basicTask.ID).
 			Bool("closed_notified", isClosedNotified).
 			Bool("is_done", isTaskDone).
+			Bool("reopened_notified", isReopenedNotified).
 			Int64("stage_id", basicTask.StageID).
 			Str("stage_name", basicTask.StageName).
 			Msg("processCompletedTasks: task state analysis")
+
+		// If task is done and was previously reopened, clear the reopened flag
+		// so it can be processed for completion again
+		if isTaskDone && isReopenedNotified {
+			log.Debug().Int64("task_id", basicTask.ID).Msg("processCompletedTasks: task done after reopening - clearing reopened flag")
+			_ = st.ClearTaskReopenedNotified(basicTask.ID)
+			// Also clear closed flag so the task can be processed for completion
+			_ = st.ClearTaskClosedNotified(basicTask.ID)
+			isClosedNotified = false // Update local variable
+		}
 
 		if isClosedNotified {
 			log.Debug().Int64("task_id", basicTask.ID).Msg("processCompletedTasks: task already notified, skipping")
