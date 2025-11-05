@@ -24,6 +24,12 @@ const (
 
 	// minFieldLength for partner/user data validation
 	minFieldLength = 2
+
+	// projectTaskModel defines Odoo model name for project tasks
+	projectTaskModel = "project.task"
+
+	// searchMethod defines Odoo search method name
+	searchMethod = "search"
 )
 
 // Config holds Odoo server connection configuration.
@@ -155,7 +161,7 @@ func (c *Client) CreateTask(ctx context.Context, in CreateTaskInput) (int64, err
 		fields["stage_id"] = in.StageID
 	}
 	var id int64
-	err := c.execKW(ctx, "project.task", "create", []any{fields}, nil, &id)
+	err := c.execKW(ctx, projectTaskModel, "create", []any{fields}, nil, &id)
 	if err != nil {
 		return id, err
 	}
@@ -177,7 +183,7 @@ func (c *Client) CreateTask(ctx context.Context, in CreateTaskInput) (int64, err
 func (c *Client) AddFollower(ctx context.Context, taskID, partnerID int64) error {
 	// message_subscribe
 	var ok bool
-	return c.execKW(ctx, "project.task", "message_subscribe", []any{taskID, []int64{partnerID}}, nil, &ok)
+	return c.execKW(ctx, projectTaskModel, "message_subscribe", []any{taskID, []int64{partnerID}}, nil, &ok)
 }
 
 // FindOrCreatePartnerByEmail finds an existing partner by email or creates a new one.
@@ -209,7 +215,7 @@ func ifEmpty(v, fallback string) string {
 // TaskURL generates a URL for accessing a task in the Odoo web interface.
 func (c *Client) TaskURL(base string, id int64) string {
 	base = strings.TrimRight(base, "/")
-	return base + "/web#id=" + itoa(int(id)) + "&model=project.task&view_type=form"
+	return base + "/web#id=" + itoa(int(id)) + "&model=" + projectTaskModel + "&view_type=form"
 }
 
 func itoa(v int) string {
@@ -240,7 +246,7 @@ func itoa(v int) string {
 func (c *Client) MessagePostCustomer(ctx context.Context, taskID, customerPartnerID int64, body string) error {
 	// public comment -> goes to followers
 	var ok any
-	return c.execKW(ctx, "project.task", "message_post", []any{taskID}, map[string]any{
+	return c.execKW(ctx, projectTaskModel, "message_post", []any{taskID}, map[string]any{
 		"body":          body,
 		"message_type":  "comment",
 		"subtype_xmlid": "mail.mt_comment",
@@ -267,7 +273,7 @@ func (c *Client) ListTaskMessagesSince(ctx context.Context, projectID int64, sin
 	// First get task IDs from the specific project
 	var taskIDs []int64
 	taskDomain := [][]any{{"project_id", "=", projectID}}
-	if err := c.execKW(ctx, "project.task", "search", []any{taskDomain}, nil, &taskIDs); err != nil {
+	if err := c.execKW(ctx, projectTaskModel, "search", []any{taskDomain}, nil, &taskIDs); err != nil {
 		return nil, fmt.Errorf("failed to get tasks for project %d: %w", projectID, err)
 	}
 	if len(taskIDs) == 0 {
@@ -278,7 +284,7 @@ func (c *Client) ListTaskMessagesSince(ctx context.Context, projectID int64, sin
 	// search mail.message by model=project.task and res_id in task_ids and date > since
 	var ids []int64
 	domain := [][]any{
-		{"model", "=", "project.task"},
+		{"model", "=", projectTaskModel},
 		{"res_id", "in", taskIDs},
 	}
 	if !since.IsZero() {
@@ -413,7 +419,7 @@ type Task struct {
 // GetTask retrieves a task by its ID from Odoo.
 func (c *Client) GetTask(ctx context.Context, id int64) (*Task, error) {
 	var rows []map[string]any
-	if err := c.execKW(ctx, "project.task", "read", []any{[]int64{id}, []string{"id", "name", "stage_id", "partner_id", "user_ids"}}, nil, &rows); err != nil {
+	if err := c.execKW(ctx, projectTaskModel, "read", []any{[]int64{id}, []string{"id", "name", "stage_id", "partner_id", "user_ids"}}, nil, &rows); err != nil {
 		return nil, err
 	}
 	if len(rows) == 0 {
@@ -439,11 +445,11 @@ func (c *Client) GetTask(ctx context.Context, id int64) (*Task, error) {
 	}
 
 	// Get assigned user info (user_ids is Many2many, take first user if any)
-	userIds := anySlice(r["user_ids"])
+	userIDs := anySlice(r["user_ids"])
 	var assignedUserID int64
 	var assignedUserName string
-	if len(userIds) > 0 {
-		assignedUserID = toInt64(userIds[0])
+	if len(userIDs) > 0 {
+		assignedUserID = toInt64(userIDs[0])
 		// Get user name by ID
 		var userRows []map[string]any
 		if err := c.execKW(ctx, "res.users", "read", []any{[]int64{assignedUserID}, []string{"name"}}, nil, &userRows); err == nil && len(userRows) > 0 {
@@ -482,14 +488,14 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, projectID int64, 
 		{"write_date", ">", since.UTC().Format("2006-01-02 15:04:05")},
 		{"project_id", "=", projectID},
 	}
-	if err := c.execKW(ctx, "project.task", "search", []any{domain}, map[string]any{"limit": defaultQueryLimit}, &ids); err != nil {
+	if err := c.execKW(ctx, projectTaskModel, "search", []any{domain}, map[string]any{"limit": defaultQueryLimit}, &ids); err != nil {
 		return nil, err
 	}
 	if len(ids) == 0 {
 		return nil, nil
 	}
 	var rows []map[string]any
-	if err := c.execKW(ctx, "project.task", "read", []any{ids, []string{"id", "name", "stage_id", "partner_id", "user_ids"}}, nil, &rows); err != nil {
+	if err := c.execKW(ctx, projectTaskModel, "read", []any{ids, []string{"id", "name", "stage_id", "partner_id", "user_ids"}}, nil, &rows); err != nil {
 		return nil, err
 	}
 	var out []*Task
@@ -514,11 +520,11 @@ func (c *Client) ListRecentlyChangedTasks(ctx context.Context, projectID int64, 
 		}
 
 		// Get assigned user info (user_ids is Many2many, take first user if any)
-		userIds := anySlice(r["user_ids"])
+		userIDs := anySlice(r["user_ids"])
 		var assignedUserID int64
 		var assignedUserName string
-		if len(userIds) > 0 {
-			assignedUserID = toInt64(userIds[0])
+		if len(userIDs) > 0 {
+			assignedUserID = toInt64(userIDs[0])
 			// Get user name by ID
 			var userRows []map[string]any
 			if err := c.execKW(ctx, "res.users", "read", []any{[]int64{assignedUserID}, []string{"name"}}, nil, &userRows); err == nil && len(userRows) > 0 {
@@ -547,14 +553,14 @@ func (c *Client) ListRecentlyChangedTasksForSLA(ctx context.Context, projectID i
 		{"write_date", ">", since.UTC().Format("2006-01-02 15:04:05")},
 		{"project_id", "=", projectID},
 	}
-	if err := c.execKW(ctx, "project.task", "search", []any{domain}, map[string]any{"limit": defaultQueryLimit}, &ids); err != nil {
+	if err := c.execKW(ctx, projectTaskModel, "search", []any{domain}, map[string]any{"limit": defaultQueryLimit}, &ids); err != nil {
 		return nil, err
 	}
 	if len(ids) == 0 {
 		return nil, nil
 	}
 	var rows []map[string]any
-	if err := c.execKW(ctx, "project.task", "read", []any{ids, []string{"id", "name", "stage_id"}}, nil, &rows); err != nil {
+	if err := c.execKW(ctx, projectTaskModel, "read", []any{ids, []string{"id", "name", "stage_id"}}, nil, &rows); err != nil {
 		return nil, err
 	}
 	var out []*Task
@@ -596,7 +602,7 @@ func (c *Client) IsTaskDone(t *Task, doneStageIDs []int64) bool {
 // SetTaskStage updates the stage of a task
 func (c *Client) SetTaskStage(ctx context.Context, taskID, stageID int64) error {
 	var ok bool
-	return c.execKW(ctx, "project.task", "write", []any{[]int64{taskID}, map[string]any{"stage_id": stageID}}, nil, &ok)
+	return c.execKW(ctx, projectTaskModel, "write", []any{[]int64{taskID}, map[string]any{"stage_id": stageID}}, nil, &ok)
 }
 
 // AssignTask assigns a task to a user
@@ -623,7 +629,7 @@ func (c *Client) AssignTask(ctx context.Context, taskID int64, userEmail string)
 		"user_ids": [][]any{[]any{6, 0, userIDs}}, // Replace existing assignees
 	}
 
-	err = c.execKW(ctx, "project.task", "write", []any{[]int64{taskID}, updateFields}, nil, &ok)
+	err = c.execKW(ctx, projectTaskModel, "write", []any{[]int64{taskID}, updateFields}, nil, &ok)
 	if err != nil {
 		log.Error().Err(err).Int64("task_id", taskID).Int64("user_id", userIDs[0]).Msg("task assignment failed")
 		return err
@@ -655,7 +661,7 @@ func (c *Client) GetTaskCounts(ctx context.Context, projectID int64, operatorEma
 
 		// Count open tasks for this user
 		var taskIDs []int64
-		err = c.execKW(ctx, "project.task", "search", []any{[][]any{
+		err = c.execKW(ctx, projectTaskModel, "search", []any{[][]any{
 			{"project_id", "=", projectID},
 			{"user_ids", "in", userIDs[0]},
 			{"stage_id.fold", "=", false}, // Not folded (open tasks)
@@ -693,7 +699,7 @@ func (c *Client) UploadAttachment(ctx context.Context, taskID int64, filename st
 	attachmentData := map[string]any{
 		"name":      filename,
 		"datas":     encodedData,
-		"res_model": "project.task",
+		"res_model": projectTaskModel,
 		"res_id":    taskID,
 		"mimetype":  contentType,
 		"type":      "binary",
@@ -720,7 +726,7 @@ func (c *Client) UploadAttachment(ctx context.Context, taskID int64, filename st
 func (c *Client) GetTaskAttachments(ctx context.Context, taskID int64) ([]Attachment, error) {
 	var attachmentIDs []int64
 	err := c.execKW(ctx, "ir.attachment", "search", []any{[][]any{
-		{"res_model", "=", "project.task"},
+		{"res_model", "=", projectTaskModel},
 		{"res_id", "=", taskID},
 	}}, nil, &attachmentIDs)
 	if err != nil {
@@ -799,7 +805,7 @@ func (c *Client) ReopenTask(ctx context.Context, taskID int64, openStageID int64
 
 	// Add a comment about reopening using system message
 	var msgResult any
-	err = c.execKW(ctx, "project.task", "message_post", []any{taskID}, map[string]any{
+	err = c.execKW(ctx, projectTaskModel, "message_post", []any{taskID}, map[string]any{
 		"body":         "🔄 Task byl automaticky znovu otevřen kvůli nové odpovědi zákazníka.",
 		"message_type": "notification",
 	}, &msgResult)

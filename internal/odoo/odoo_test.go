@@ -891,7 +891,7 @@ func TestListTaskMessagesSince_ProjectFiltering(t *testing.T) {
 			method := args[4].(string)
 			domain := args[5].([]any)
 
-			if model != "project.task" || method != "search" {
+			if model != projectTaskModel || method != searchMethod {
 				t.Errorf("Expected project.task search, got %s.%s", model, method)
 			}
 
@@ -1050,7 +1050,7 @@ func TestListRecentlyChangedTasks_ProjectFiltering(t *testing.T) {
 			method := args[4].(string)
 			domain := args[5].([]any)
 
-			if model != "project.task" || method != "search" {
+			if model != projectTaskModel || method != searchMethod {
 				t.Errorf("Expected project.task search, got %s.%s", model, method)
 			}
 
@@ -1356,7 +1356,7 @@ func TestListRecentlyChangedTasksForSLA_ProjectFiltering(t *testing.T) {
 			method := args[4].(string)
 			domain := args[5].([]any)
 
-			if model != "project.task" || method != "search" {
+			if model != projectTaskModel || method != searchMethod {
 				t.Errorf("Expected project.task search, got %s.%s", model, method)
 			}
 
