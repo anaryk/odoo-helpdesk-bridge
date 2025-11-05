@@ -448,7 +448,7 @@ func processOdooPublicMessages(
 	maxSeen := lastTS
 	for _, mm := range msgs {
 		log.Debug().Int64("msg_id", mm.ID).Int64("task_id", mm.TaskID).Bool("by_operator", mm.ByOperator).Bool("is_comment", mm.IsComment).Bool("is_public", mm.IsPublicPrefix).Msg("processOdooPublicMessages: checking message")
-		
+
 		if mm.Date.After(maxSeen) {
 			maxSeen = mm.Date
 		}
@@ -460,9 +460,9 @@ func processOdooPublicMessages(
 			log.Debug().Int64("msg_id", mm.ID).Bool("by_operator", mm.ByOperator).Bool("is_comment", mm.IsComment).Bool("is_public", mm.IsPublicPrefix).Msg("processOdooPublicMessages: message filtered out")
 			continue
 		}
-		
+
 		log.Info().Int64("msg_id", mm.ID).Int64("task_id", mm.TaskID).Msg("processOdooPublicMessages: processing public message for email")
-		
+
 		task, err := oc.GetTask(ctx, mm.TaskID)
 		if err != nil || task.CustomerEmail == "" {
 			log.Debug().Int64("msg_id", mm.ID).Int64("task_id", mm.TaskID).Err(err).Str("customer_email", task.CustomerEmail).Msg("processOdooPublicMessages: task details missing, skipping")
@@ -481,7 +481,7 @@ func processOdooPublicMessages(
 		}
 
 		log.Info().Int64("msg_id", mm.ID).Int64("task_id", mm.TaskID).Str("customer_email", task.CustomerEmail).Int("attachments", len(attachments)).Msg("processOdooPublicMessages: sending agent reply email")
-		
+
 		// Send email with attachments if any
 		if len(attachments) > 0 {
 			log.Debug().Int64("msg_id", mm.ID).Str("subject", subj).Msg("processOdooPublicMessages: sending email with attachments")
@@ -561,15 +561,15 @@ func processCompletedTasks(
 		}
 
 		log.Info().Int64("task_id", t.ID).Str("customer_email", t.CustomerEmail).Msg("processCompletedTasks: sending completion email")
-		
+
 		subj, body, err := tm.RenderTicketClosed(cfg.App.TicketPrefix, int(t.ID), t.TaskURL, t.CustomerName)
 		if err != nil {
 			log.Error().Err(err).Int64("task_id", t.ID).Msg("tmpl close")
 			continue
 		}
-		
+
 		log.Debug().Int64("task_id", t.ID).Str("subject", subj).Msg("processCompletedTasks: sending email")
-		
+
 		if err := m.Send(t.CustomerEmail, subj, body); err != nil {
 			log.Error().Err(err).Str("email", t.CustomerEmail).Msg("send close")
 		} else {
