@@ -126,6 +126,14 @@ func (s *Store) MarkTaskClosedNotified(id int64) error {
 	})
 }
 
+// ClearTaskClosedNotified removes the closed notification flag for a task.
+// This should be called when a task is reopened to allow future closed notifications.
+func (s *Store) ClearTaskClosedNotified(id int64) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		return tx.Bucket(bClosedNotified).Delete(itob(id))
+	})
+}
+
 // IsTaskReopenedNotified checks if a task reopened notification has been sent.
 func (s *Store) IsTaskReopenedNotified(id int64) bool {
 	var ok bool

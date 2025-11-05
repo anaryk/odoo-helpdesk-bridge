@@ -636,6 +636,9 @@ func processReopenedTasks(
 
 		// Mark as notified to avoid duplicate notifications
 		_ = st.MarkTaskReopenedNotified(t.ID)
+
+		// Clear the closed notification flag so the task can be processed again when completed
+		_ = st.ClearTaskClosedNotified(t.ID)
 	}
 	return nil
 }

@@ -330,3 +330,47 @@ func TestStore_TaskReopenedNotificationPersistence(t *testing.T) {
 		t.Error("Cleared reopened notification should persist after reopening store")
 	}
 }
+
+func TestStore_TaskClosedNotification(t *testing.T) {
+	// Create temporary database file
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	store, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	taskID := int64(54321)
+
+	// Initially, task should not have closed notification
+	notified := store.IsTaskClosedNotified(taskID)
+	if notified {
+		t.Error("Task should not have closed notification initially")
+	}
+
+	// Mark task as having closed notification sent
+	err = store.MarkTaskClosedNotified(taskID)
+	if err != nil {
+		t.Fatalf("MarkTaskClosedNotified failed: %v", err)
+	}
+
+	// Now task should have closed notification flag
+	notified = store.IsTaskClosedNotified(taskID)
+	if !notified {
+		t.Error("Task should have closed notification after marking")
+	}
+
+	// Clear the closed notification flag
+	err = store.ClearTaskClosedNotified(taskID)
+	if err != nil {
+		t.Fatalf("ClearTaskClosedNotified failed: %v", err)
+	}
+
+	// Task should no longer have closed notification flag
+	notified = store.IsTaskClosedNotified(taskID)
+	if notified {
+		t.Error("Task should not have closed notification after clearing")
+	}
+}
