@@ -437,11 +437,14 @@ func processOdooPublicMessages(
 	tm *templ.Engine,
 	m *mailer.SMTPClient,
 ) error {
+	log.Debug().Msg("processOdooPublicMessages: starting")
 	lastTS := st.GetLastOdooMessageTime()
 	msgs, err := oc.ListTaskMessagesSince(ctx, lastTS)
 	if err != nil {
+		log.Error().Err(err).Msg("processOdooPublicMessages: ListTaskMessagesSince failed")
 		return err
 	}
+	log.Debug().Int("count", len(msgs)).Msg("processOdooPublicMessages: got messages")
 	maxSeen := lastTS
 	for _, mm := range msgs {
 		if mm.Date.After(maxSeen) {
@@ -501,13 +504,19 @@ func processCompletedTasks(
 	sl *slack.Client,
 	basicTasks []*odoo.Task,
 ) error {
+	log.Debug().Int("count", len(basicTasks)).Msg("processCompletedTasks: starting")
 	for _, basicTask := range basicTasks {
+		log.Debug().Int64("task_id", basicTask.ID).Str("name", basicTask.Name).Msg("processCompletedTasks: checking task")
 		if st.IsTaskClosedNotified(basicTask.ID) {
+			log.Debug().Int64("task_id", basicTask.ID).Msg("processCompletedTasks: task already notified, skipping")
 			continue
 		}
 		if !oc.IsTaskDone(basicTask, cfg.App.DoneStageIDs) {
+			log.Debug().Int64("task_id", basicTask.ID).Msg("processCompletedTasks: task not done, skipping")
 			continue
 		}
+		
+		log.Info().Int64("task_id", basicTask.ID).Str("name", basicTask.Name).Msg("processCompletedTasks: processing completed task")
 
 		// Only get full task details (with customer email) for tasks we actually need to process
 		t, err := oc.GetTask(ctx, basicTask.ID)
@@ -562,7 +571,9 @@ func processReopenedTasks(
 	sl *slack.Client,
 	basicTasks []*odoo.Task,
 ) error {
+	log.Debug().Int("count", len(basicTasks)).Msg("processReopenedTasks: starting")
 	for _, basicTask := range basicTasks {
+		log.Debug().Int64("task_id", basicTask.ID).Str("name", basicTask.Name).Msg("processReopenedTasks: checking task")
 		// Skip if task is currently done or if we already notified about reopening
 		if oc.IsTaskDone(basicTask, cfg.App.DoneStageIDs) || st.IsTaskReopenedNotified(basicTask.ID) {
 			continue
@@ -618,27 +629,39 @@ func processOdooEvents(
 	m *mailer.SMTPClient,
 	sl *slack.Client,
 ) error {
+	log.Debug().Msg("processOdooEvents: starting")
+	
 	// Process public messages (comments -> emails to customers)
+	log.Debug().Msg("processOdooEvents: calling processOdooPublicMessages")
 	if err := processOdooPublicMessages(ctx, cfg, oc, st, tm, m); err != nil {
+		log.Error().Err(err).Msg("processOdooEvents: processOdooPublicMessages failed")
 		return err
 	}
 
 	// Get recently changed tasks for processing completed and reopened tasks
+	log.Debug().Msg("processOdooEvents: getting recently changed tasks")
 	basicTasks, err := oc.ListRecentlyChangedTasksForSLA(ctx, time.Now().Add(-48*time.Hour))
 	if err != nil {
+		log.Error().Err(err).Msg("processOdooEvents: ListRecentlyChangedTasksForSLA failed")
 		return err
 	}
+	log.Debug().Int("count", len(basicTasks)).Msg("processOdooEvents: got basic tasks")
 
 	// Process completed tasks
+	log.Debug().Msg("processOdooEvents: calling processCompletedTasks")
 	if err := processCompletedTasks(ctx, cfg, oc, st, tm, m, sl, basicTasks); err != nil {
+		log.Error().Err(err).Msg("processOdooEvents: processCompletedTasks failed")
 		return err
 	}
 
 	// Process reopened tasks
+	log.Debug().Msg("processOdooEvents: calling processReopenedTasks")
 	if err := processReopenedTasks(ctx, cfg, oc, st, sl, basicTasks); err != nil {
+		log.Error().Err(err).Msg("processOdooEvents: processReopenedTasks failed")
 		return err
 	}
 
+	log.Debug().Msg("processOdooEvents: completed successfully")
 	return nil
 }
 
