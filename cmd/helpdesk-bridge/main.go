@@ -447,17 +447,25 @@ func processOdooPublicMessages(
 	log.Debug().Int("count", len(msgs)).Msg("processOdooPublicMessages: got messages")
 	maxSeen := lastTS
 	for _, mm := range msgs {
+		log.Debug().Int64("msg_id", mm.ID).Int64("task_id", mm.TaskID).Bool("by_operator", mm.ByOperator).Bool("is_comment", mm.IsComment).Bool("is_public", mm.IsPublicPrefix).Msg("processOdooPublicMessages: checking message")
+		
 		if mm.Date.After(maxSeen) {
 			maxSeen = mm.Date
 		}
 		if st.IsOdooMessageSent(mm.ID) {
+			log.Debug().Int64("msg_id", mm.ID).Msg("processOdooPublicMessages: message already sent, skipping")
 			continue
 		}
 		if !mm.ByOperator || !mm.IsComment || !mm.IsPublicPrefix {
+			log.Debug().Int64("msg_id", mm.ID).Bool("by_operator", mm.ByOperator).Bool("is_comment", mm.IsComment).Bool("is_public", mm.IsPublicPrefix).Msg("processOdooPublicMessages: message filtered out")
 			continue
 		}
+		
+		log.Info().Int64("msg_id", mm.ID).Int64("task_id", mm.TaskID).Msg("processOdooPublicMessages: processing public message for email")
+		
 		task, err := oc.GetTask(ctx, mm.TaskID)
 		if err != nil || task.CustomerEmail == "" {
+			log.Debug().Int64("msg_id", mm.ID).Int64("task_id", mm.TaskID).Err(err).Str("customer_email", task.CustomerEmail).Msg("processOdooPublicMessages: task details missing, skipping")
 			continue
 		}
 		subj, body, err := tm.RenderAgentReply(cfg.App.TicketPrefix, int(task.ID), task.Name, task.CustomerName, mm.BodyWithoutPrefix)
@@ -472,17 +480,23 @@ func processOdooPublicMessages(
 			log.Error().Err(err).Int64("task_id", mm.TaskID).Msg("get attachments for reply")
 		}
 
+		log.Info().Int64("msg_id", mm.ID).Int64("task_id", mm.TaskID).Str("customer_email", task.CustomerEmail).Int("attachments", len(attachments)).Msg("processOdooPublicMessages: sending agent reply email")
+		
 		// Send email with attachments if any
 		if len(attachments) > 0 {
+			log.Debug().Int64("msg_id", mm.ID).Str("subject", subj).Msg("processOdooPublicMessages: sending email with attachments")
 			if err := sendEmailWithAttachments(ctx, m, oc, task.CustomerEmail, subj, body, attachments); err != nil {
 				log.Error().Err(err).Str("email", task.CustomerEmail).Msg("send agent reply with attachments")
 			} else {
+				log.Info().Int64("msg_id", mm.ID).Str("email", task.CustomerEmail).Msg("processOdooPublicMessages: email with attachments sent successfully")
 				_ = st.MarkOdooMessageSent(mm.ID)
 			}
 		} else {
+			log.Debug().Int64("msg_id", mm.ID).Str("subject", subj).Msg("processOdooPublicMessages: sending plain email")
 			if err := m.Send(task.CustomerEmail, subj, body); err != nil {
 				log.Error().Err(err).Str("email", task.CustomerEmail).Msg("send agent")
 			} else {
+				log.Info().Int64("msg_id", mm.ID).Str("email", task.CustomerEmail).Msg("processOdooPublicMessages: email sent successfully")
 				_ = st.MarkOdooMessageSent(mm.ID)
 			}
 		}
@@ -515,7 +529,7 @@ func processCompletedTasks(
 			log.Debug().Int64("task_id", basicTask.ID).Msg("processCompletedTasks: task not done, skipping")
 			continue
 		}
-		
+
 		log.Info().Int64("task_id", basicTask.ID).Str("name", basicTask.Name).Msg("processCompletedTasks: processing completed task")
 
 		// Only get full task details (with customer email) for tasks we actually need to process
@@ -546,14 +560,20 @@ func processCompletedTasks(
 			}
 		}
 
+		log.Info().Int64("task_id", t.ID).Str("customer_email", t.CustomerEmail).Msg("processCompletedTasks: sending completion email")
+		
 		subj, body, err := tm.RenderTicketClosed(cfg.App.TicketPrefix, int(t.ID), t.TaskURL, t.CustomerName)
 		if err != nil {
 			log.Error().Err(err).Int64("task_id", t.ID).Msg("tmpl close")
 			continue
 		}
+		
+		log.Debug().Int64("task_id", t.ID).Str("subject", subj).Msg("processCompletedTasks: sending email")
+		
 		if err := m.Send(t.CustomerEmail, subj, body); err != nil {
 			log.Error().Err(err).Str("email", t.CustomerEmail).Msg("send close")
 		} else {
+			log.Info().Int64("task_id", t.ID).Str("email", t.CustomerEmail).Msg("processCompletedTasks: email sent successfully")
 			_ = st.MarkTaskClosedNotified(t.ID)
 			// Clear reopened notification flag since task is now closed
 			_ = st.ClearTaskReopenedNotified(t.ID)
@@ -630,7 +650,7 @@ func processOdooEvents(
 	sl *slack.Client,
 ) error {
 	log.Debug().Msg("processOdooEvents: starting")
-	
+
 	// Process public messages (comments -> emails to customers)
 	log.Debug().Msg("processOdooEvents: calling processOdooPublicMessages")
 	if err := processOdooPublicMessages(ctx, cfg, oc, st, tm, m); err != nil {
