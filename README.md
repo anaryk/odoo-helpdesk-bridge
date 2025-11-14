@@ -5,7 +5,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/anaryk/odoo-helpdesk-bridge)](https://goreportcard.com/report/github.com/anaryk/odoo-helpdesk-bridge)
 [![Docker Image](https://ghcr-badge.herokuapp.com/anaryk/odoo-helpdesk-bridge/size)](https://github.com/anaryk/odoo-helpdesk-bridge/pkgs/container/odoo-helpdesk-bridge)
 
-A Go service that bridges IMAP email, Odoo Helpdesk, and Slack for automated ticket processing and notifications with SLA monitoring.
+A Go service that bridges IMAP email, Odoo Helpdesk, and Slack for automated ticket processing and notifications with SLA monitoring and more.
 
 ## Features
 
