@@ -42,6 +42,10 @@ const (
 	// Connection retry constants
 	maxRetryAttempts = 3
 	retryDelay       = 5 * time.Second
+
+	// Byte boundaries for charset decoding
+	asciiUpperBound     = 0x80 // Bytes below this are ASCII
+	latin1ExtendedStart = 0xA0 // Start of Latin-1 extended characters
 )
 
 // Config holds IMAP client configuration parameters.
@@ -708,7 +712,7 @@ func decodeISO8859_2(data []byte) string {
 
 	var result strings.Builder
 	for _, b := range data {
-		if b < 0x80 {
+		if b < asciiUpperBound {
 			result.WriteByte(b)
 		} else if r, ok := iso8859_2[b]; ok {
 			result.WriteRune(r)
@@ -731,11 +735,11 @@ func decodeWindows1252(data []byte) string {
 
 	var result strings.Builder
 	for _, b := range data {
-		if b < 0x80 {
+		if b < asciiUpperBound {
 			result.WriteByte(b)
 		} else if r, ok := windows1252[b]; ok {
 			result.WriteRune(r)
-		} else if b >= 0xA0 {
+		} else if b >= latin1ExtendedStart {
 			// ISO-8859-1 range (same as Unicode for 0xA0-0xFF)
 			result.WriteRune(rune(b))
 		} else {
