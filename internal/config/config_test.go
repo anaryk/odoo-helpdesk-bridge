@@ -169,7 +169,7 @@ func TestConfig_Defaults(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "minimal_config.yaml")
 
-	// Create minimal config file
+	// Create minimal config file with all required fields
 	minimalContent := `
 app: {}
 odoo:
@@ -178,11 +178,19 @@ odoo:
   username: "admin"
   password: "password"
   project_id: 1
+  stages:
+    new: 100
+    assigned: 101
+    in_progress: 102
+    done: 103
 slack: {}
 imap:
   host: "imap.example.com"
+  username: "user@example.com"
+  password: "password"
 smtp:
   host: "smtp.example.com"
+  from_email: "support@example.com"
 `
 
 	err := os.WriteFile(configPath, []byte(minimalContent), 0600)
@@ -313,6 +321,7 @@ smtp:
   port: 587
   username: "test@test.com"
   password: "test_password"
+  from_email: "support@test.com"
 `
 
 	err := os.WriteFile(configPath, []byte(configContent), 0600)

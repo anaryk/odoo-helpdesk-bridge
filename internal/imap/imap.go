@@ -402,11 +402,19 @@ func (cl *Client) markSeenWithRetry(ctx context.Context, uid uint32, retryCount 
 // --- helpers ---
 
 func htmlToText(s string) string {
+	// Handle common HTML entities first
+	s = decodeHTMLEntities(s)
+
 	// Simple HTML tag removal with basic line break handling
 	s = strings.ReplaceAll(s, "<p>", "")
 	s = strings.ReplaceAll(s, "</p>", "\n")
 	s = strings.ReplaceAll(s, "<br/>", "\n")
 	s = strings.ReplaceAll(s, "<br>", "\n")
+	s = strings.ReplaceAll(s, "<br />", "\n")
+	s = strings.ReplaceAll(s, "<div>", "")
+	s = strings.ReplaceAll(s, "</div>", "\n")
+	s = strings.ReplaceAll(s, "<li>", "- ")
+	s = strings.ReplaceAll(s, "</li>", "\n")
 
 	// Strip remaining tags
 	var out strings.Builder
@@ -424,7 +432,124 @@ func htmlToText(s string) string {
 			out.WriteRune(r)
 		}
 	}
-	return strings.TrimSpace(out.String())
+
+	// Clean up multiple newlines and spaces
+	result := out.String()
+	result = strings.ReplaceAll(result, "\r\n", "\n")
+	result = strings.ReplaceAll(result, "\r", "\n")
+
+	// Remove excessive blank lines (more than 2 consecutive newlines)
+	for strings.Contains(result, "\n\n\n") {
+		result = strings.ReplaceAll(result, "\n\n\n", "\n\n")
+	}
+
+	return strings.TrimSpace(result)
+}
+
+// decodeHTMLEntities decodes common HTML entities to their character equivalents
+func decodeHTMLEntities(s string) string {
+	// Named entities
+	entities := map[string]string{
+		"&nbsp;":   " ",
+		"&amp;":    "&",
+		"&lt;":     "<",
+		"&gt;":     ">",
+		"&quot;":   "\"",
+		"&apos;":   "'",
+		"&copy;":   "©",
+		"&reg;":    "®",
+		"&euro;":   "€",
+		"&pound;":  "£",
+		"&yen;":    "¥",
+		"&cent;":   "¢",
+		"&deg;":    "°",
+		"&mdash;":  "—",
+		"&ndash;":  "–",
+		"&hellip;": "…",
+		"&laquo;":  "«",
+		"&raquo;":  "»",
+		"&bull;":   "•",
+		"&trade;":  "™",
+		// Czech-specific entities
+		"&aacute;": "á",
+		"&Aacute;": "Á",
+		"&eacute;": "é",
+		"&Eacute;": "É",
+		"&iacute;": "í",
+		"&Iacute;": "Í",
+		"&oacute;": "ó",
+		"&Oacute;": "Ó",
+		"&uacute;": "ú",
+		"&Uacute;": "Ú",
+		"&yacute;": "ý",
+		"&Yacute;": "Ý",
+		"&ccaron;": "č",
+		"&Ccaron;": "Č",
+		"&dcaron;": "ď",
+		"&Dcaron;": "Ď",
+		"&ecaron;": "ě",
+		"&Ecaron;": "Ě",
+		"&ncaron;": "ň",
+		"&Ncaron;": "Ň",
+		"&rcaron;": "ř",
+		"&Rcaron;": "Ř",
+		"&scaron;": "š",
+		"&Scaron;": "Š",
+		"&tcaron;": "ť",
+		"&Tcaron;": "Ť",
+		"&uring;":  "ů",
+		"&Uring;":  "Ů",
+		"&zcaron;": "ž",
+		"&Zcaron;": "Ž",
+	}
+
+	for entity, char := range entities {
+		s = strings.ReplaceAll(s, entity, char)
+	}
+
+	// Handle numeric entities (&#123; or &#x7B;)
+	s = decodeNumericEntities(s)
+
+	return s
+}
+
+// decodeNumericEntities decodes numeric HTML entities like &#123; or &#x7B;
+func decodeNumericEntities(s string) string {
+	// Decimal entities: &#123;
+	for {
+		start := strings.Index(s, "&#")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s[start:], ";")
+		if end == -1 {
+			break
+		}
+		end += start
+
+		entity := s[start : end+1]
+		numStr := s[start+2 : end]
+
+		var num int64
+		var err error
+
+		if strings.HasPrefix(numStr, "x") || strings.HasPrefix(numStr, "X") {
+			// Hexadecimal: &#x7B;
+			num, err = strconv.ParseInt(numStr[1:], 16, 32)
+		} else {
+			// Decimal: &#123;
+			num, err = strconv.ParseInt(numStr, 10, 32)
+		}
+
+		if err == nil && num > 0 && num < 0x10FFFF {
+			s = strings.Replace(s, entity, string(rune(num)), 1)
+		} else {
+			// Invalid entity, skip it by moving past
+			break
+		}
+	}
+
+	return s
 }
 
 // ExtractTicketID extracts a ticket ID from an email subject line using the expected prefix pattern.
@@ -446,22 +571,55 @@ func ExtractTicketID(subject, expectedPrefix string) (int, bool) {
 func CleanBody(b string) string {
 	lines := strings.Split(b, "\n")
 	var out []string
+
+	// Patterns that indicate the start of quoted/forwarded content
+	breakPatterns := []string{
+		"original message",
+		"původní zpráva",
+		"---------- forwarded message",
+		"---------- přeposlaná zpráva",
+		"on wrote:",
+		"napsal:",
+		"from:",
+		"od:",
+		"sent:",
+		"odesláno:",
+		"-------- original message --------",
+		"-------- původní zpráva --------",
+	}
+
 	for _, ln := range lines {
 		trim := strings.TrimSpace(ln)
+		trimLower := strings.ToLower(trim)
+
+		// Skip quoted lines
 		if strings.HasPrefix(trim, ">") {
 			continue
 		}
-		if strings.Contains(strings.ToLower(trim), "original message") {
+
+		// Check for break patterns
+		shouldBreak := false
+		for _, pattern := range breakPatterns {
+			if strings.Contains(trimLower, pattern) {
+				shouldBreak = true
+				break
+			}
+		}
+		if shouldBreak {
 			break
 		}
+
 		out = append(out, ln)
 	}
+
 	s := strings.TrimSpace(strings.Join(out, "\n"))
+
 	// If result is empty and original had content, return original content
 	if s == "" && strings.TrimSpace(b) != "" {
 		log.Debug().Msg("CleanBody resulted in empty string, returning original content")
 		return strings.TrimSpace(b)
 	}
+
 	return s
 }
 
@@ -487,35 +645,104 @@ func decodeTextContent(data []byte, encoding string, charset string) string {
 	}
 
 	// Convert from charset to UTF-8 if needed
-	text := string(decoded)
-
-	// Handle common charset encodings
-	switch strings.ToLower(charset) {
-	case "iso-8859-2", "windows-1252":
-		// For Czech/European charsets, try to decode common characters
-		text = strings.ReplaceAll(text, "=FD", "ý")
-		text = strings.ReplaceAll(text, "=E1", "á")
-		text = strings.ReplaceAll(text, "=ED", "í")
-		text = strings.ReplaceAll(text, "=E9", "é")
-		text = strings.ReplaceAll(text, "=F9", "ů")
-		text = strings.ReplaceAll(text, "=E8", "č")
-		text = strings.ReplaceAll(text, "=F8", "ř")
-		text = strings.ReplaceAll(text, "=9E", "ž")
-		text = strings.ReplaceAll(text, "=BE", "ž")
-		text = strings.ReplaceAll(text, "=9A", "š")
-
-		// More systematic approach for remaining equals signs
-		if strings.Contains(text, "=") {
-			// Try to parse as quoted-printable if we still have = signs
-			if qpReader := quotedprintable.NewReader(strings.NewReader(text)); qpReader != nil {
-				if decoded2, err := io.ReadAll(qpReader); err == nil {
-					text = string(decoded2)
-				}
-			}
-		}
-	}
+	text := decodeCharset(decoded, charset)
 
 	return strings.TrimSpace(text)
+}
+
+// decodeCharset converts text from various charsets to UTF-8
+func decodeCharset(data []byte, charset string) string {
+	if charset == "" {
+		return string(data)
+	}
+
+	charset = strings.ToLower(strings.TrimSpace(charset))
+
+	// Map of charset aliases
+	charsetMap := map[string][]byte{
+		"iso-8859-1":   nil, // Latin-1
+		"iso-8859-2":   nil, // Latin-2 (Central European)
+		"windows-1250": nil, // Windows Central European
+		"windows-1252": nil, // Windows Western European
+		"cp1250":       nil, // Same as windows-1250
+		"cp1252":       nil, // Same as windows-1252
+	}
+
+	// Check if we need charset conversion
+	_, needsConversion := charsetMap[charset]
+	if !needsConversion && charset != "utf-8" && charset != "us-ascii" {
+		// Unknown charset, try as-is
+		log.Debug().Str("charset", charset).Msg("unknown charset, using as-is")
+	}
+
+	// For ISO-8859-2 and Windows-1250 (Czech/Central European)
+	if charset == "iso-8859-2" || charset == "windows-1250" || charset == "cp1250" {
+		return decodeISO8859_2(data)
+	}
+
+	// For ISO-8859-1 and Windows-1252 (Western European)
+	if charset == "iso-8859-1" || charset == "windows-1252" || charset == "cp1252" {
+		return decodeWindows1252(data)
+	}
+
+	return string(data)
+}
+
+// decodeISO8859_2 decodes ISO-8859-2 (Latin-2, Central European) to UTF-8
+func decodeISO8859_2(data []byte) string {
+	// ISO-8859-2 to UTF-8 mapping for values 0x80-0xFF
+	iso8859_2 := map[byte]rune{
+		0xA1: 'Ą', 0xA2: '˘', 0xA3: 'Ł', 0xA4: '¤', 0xA5: 'Ľ', 0xA6: 'Ś', 0xA7: '§',
+		0xA8: '¨', 0xA9: 'Š', 0xAA: 'Ş', 0xAB: 'Ť', 0xAC: 'Ź', 0xAD: '\u00AD', 0xAE: 'Ž', 0xAF: 'Ż',
+		0xB0: '°', 0xB1: 'ą', 0xB2: '˛', 0xB3: 'ł', 0xB4: '´', 0xB5: 'ľ', 0xB6: 'ś', 0xB7: 'ˇ',
+		0xB8: '¸', 0xB9: 'š', 0xBA: 'ş', 0xBB: 'ť', 0xBC: 'ź', 0xBD: '˝', 0xBE: 'ž', 0xBF: 'ż',
+		0xC0: 'Ŕ', 0xC1: 'Á', 0xC2: 'Â', 0xC3: 'Ă', 0xC4: 'Ä', 0xC5: 'Ĺ', 0xC6: 'Ć', 0xC7: 'Ç',
+		0xC8: 'Č', 0xC9: 'É', 0xCA: 'Ę', 0xCB: 'Ë', 0xCC: 'Ě', 0xCD: 'Í', 0xCE: 'Î', 0xCF: 'Ď',
+		0xD0: 'Đ', 0xD1: 'Ń', 0xD2: 'Ň', 0xD3: 'Ó', 0xD4: 'Ô', 0xD5: 'Ő', 0xD6: 'Ö', 0xD7: '×',
+		0xD8: 'Ř', 0xD9: 'Ů', 0xDA: 'Ú', 0xDB: 'Ű', 0xDC: 'Ü', 0xDD: 'Ý', 0xDE: 'Ţ', 0xDF: 'ß',
+		0xE0: 'ŕ', 0xE1: 'á', 0xE2: 'â', 0xE3: 'ă', 0xE4: 'ä', 0xE5: 'ĺ', 0xE6: 'ć', 0xE7: 'ç',
+		0xE8: 'č', 0xE9: 'é', 0xEA: 'ę', 0xEB: 'ë', 0xEC: 'ě', 0xED: 'í', 0xEE: 'î', 0xEF: 'ď',
+		0xF0: 'đ', 0xF1: 'ń', 0xF2: 'ň', 0xF3: 'ó', 0xF4: 'ô', 0xF5: 'ő', 0xF6: 'ö', 0xF7: '÷',
+		0xF8: 'ř', 0xF9: 'ů', 0xFA: 'ú', 0xFB: 'ű', 0xFC: 'ü', 0xFD: 'ý', 0xFE: 'ţ', 0xFF: '˙',
+	}
+
+	var result strings.Builder
+	for _, b := range data {
+		if b < 0x80 {
+			result.WriteByte(b)
+		} else if r, ok := iso8859_2[b]; ok {
+			result.WriteRune(r)
+		} else {
+			result.WriteByte(b)
+		}
+	}
+	return result.String()
+}
+
+// decodeWindows1252 decodes Windows-1252 (Western European) to UTF-8
+func decodeWindows1252(data []byte) string {
+	// Windows-1252 specific characters (0x80-0x9F range differs from ISO-8859-1)
+	windows1252 := map[byte]rune{
+		0x80: '\u20AC', 0x82: '\u201A', 0x83: '\u0192', 0x84: '\u201E', 0x85: '\u2026', 0x86: '\u2020', 0x87: '\u2021',
+		0x88: '\u02C6', 0x89: '\u2030', 0x8A: '\u0160', 0x8B: '\u2039', 0x8C: '\u0152', 0x8E: '\u017D',
+		0x91: '\u2018', 0x92: '\u2019', 0x93: '\u201C', 0x94: '\u201D', 0x95: '\u2022', 0x96: '\u2013', 0x97: '\u2014',
+		0x98: '\u02DC', 0x99: '\u2122', 0x9A: '\u0161', 0x9B: '\u203A', 0x9C: '\u0153', 0x9E: '\u017E', 0x9F: '\u0178',
+	}
+
+	var result strings.Builder
+	for _, b := range data {
+		if b < 0x80 {
+			result.WriteByte(b)
+		} else if r, ok := windows1252[b]; ok {
+			result.WriteRune(r)
+		} else if b >= 0xA0 {
+			// ISO-8859-1 range (same as Unicode for 0xA0-0xFF)
+			result.WriteRune(rune(b))
+		} else {
+			result.WriteByte(b)
+		}
+	}
+	return result.String()
 }
 
 // extractBodyFromRawEmail extracts body content from raw email text by skipping headers

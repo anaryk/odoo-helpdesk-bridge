@@ -412,14 +412,18 @@ func processIncoming(
 		// Initialize SLA tracking
 		_ = slaHandler.InitializeTask(taskID64)
 
-		// potvrzení zákazníkovi
-		subj, body, err := tm.RenderNewTicket(cfg.App.TicketPrefix, newTaskID, em.FromName, desc, cfg.App.SLA.StartTimeHours, cfg.App.SLA.ResolutionTimeHours)
-		if err == nil {
-			if err := m.Send(em.FromEmail, subj, body); err != nil {
-				log.Error().Err(err).Str("email", em.FromEmail).Msg("send confirm")
-			}
+		// potvrzení zákazníkovi (skip for no-reply emails like AI bots)
+		if isNoReplyEmail(em.FromEmail, cfg.App.NoReplyEmails) {
+			log.Info().Str("email", em.FromEmail).Int("task_id", newTaskID).Msg("skipping confirmation email for no-reply address")
 		} else {
-			log.Error().Err(err).Int("task_id", newTaskID).Msg("tmpl")
+			subj, body, err := tm.RenderNewTicket(cfg.App.TicketPrefix, newTaskID, em.FromName, desc, cfg.App.SLA.StartTimeHours, cfg.App.SLA.ResolutionTimeHours)
+			if err == nil {
+				if err := m.Send(em.FromEmail, subj, body); err != nil {
+					log.Error().Err(err).Str("email", em.FromEmail).Msg("send confirm")
+				}
+			} else {
+				log.Error().Err(err).Int("task_id", newTaskID).Msg("tmpl")
+			}
 		}
 
 		_ = st.MarkProcessedEmail(em.ID)
@@ -468,6 +472,14 @@ func processOdooPublicMessages(
 			log.Debug().Int64("msg_id", mm.ID).Int64("task_id", mm.TaskID).Err(err).Str("customer_email", task.CustomerEmail).Msg("processOdooPublicMessages: task details missing, skipping")
 			continue
 		}
+
+		// Skip sending email to no-reply addresses (like AI bots)
+		if isNoReplyEmail(task.CustomerEmail, cfg.App.NoReplyEmails) {
+			log.Info().Int64("msg_id", mm.ID).Str("email", task.CustomerEmail).Msg("processOdooPublicMessages: skipping reply to no-reply address")
+			_ = st.MarkOdooMessageSent(mm.ID) // Mark as sent to prevent reprocessing
+			continue
+		}
+
 		subj, body, err := tm.RenderAgentReply(cfg.App.TicketPrefix, int(task.ID), task.Name, task.CustomerName, mm.BodyWithoutPrefix)
 		if err != nil {
 			log.Error().Err(err).Int64("task_id", task.ID).Msg("tmpl agent")
@@ -561,20 +573,25 @@ func processCompletedTasks(
 			continue
 		}
 
-		log.Info().Int64("task_id", t.ID).Str("customer_email", t.CustomerEmail).Msg("processCompletedTasks: sending completion email")
-
-		subj, body, err := tm.RenderTicketClosed(cfg.App.TicketPrefix, int(t.ID), t.TaskURL, t.CustomerName)
-		if err != nil {
-			log.Error().Err(err).Int64("task_id", t.ID).Msg("tmpl close")
-			continue
-		}
-
-		log.Debug().Int64("task_id", t.ID).Str("subject", subj).Msg("processCompletedTasks: sending email")
-
-		if err := m.Send(t.CustomerEmail, subj, body); err != nil {
-			log.Error().Err(err).Str("email", t.CustomerEmail).Msg("send close")
+		// Skip sending email to no-reply addresses (like AI bots)
+		if isNoReplyEmail(t.CustomerEmail, cfg.App.NoReplyEmails) {
+			log.Info().Int64("task_id", t.ID).Str("email", t.CustomerEmail).Msg("processCompletedTasks: skipping completion email for no-reply address")
 		} else {
-			log.Info().Int64("task_id", t.ID).Str("email", t.CustomerEmail).Msg("processCompletedTasks: email sent successfully")
+			log.Info().Int64("task_id", t.ID).Str("customer_email", t.CustomerEmail).Msg("processCompletedTasks: sending completion email")
+
+			subj, body, err := tm.RenderTicketClosed(cfg.App.TicketPrefix, int(t.ID), t.TaskURL, t.CustomerName)
+			if err != nil {
+				log.Error().Err(err).Int64("task_id", t.ID).Msg("tmpl close")
+				// Continue to mark as notified even if template fails
+			} else {
+				log.Debug().Int64("task_id", t.ID).Str("subject", subj).Msg("processCompletedTasks: sending email")
+
+				if err := m.Send(t.CustomerEmail, subj, body); err != nil {
+					log.Error().Err(err).Str("email", t.CustomerEmail).Msg("send close")
+				} else {
+					log.Info().Int64("task_id", t.ID).Str("email", t.CustomerEmail).Msg("processCompletedTasks: email sent successfully")
+				}
+			}
 		}
 
 		// Always mark as notified and update Slack, regardless of email success
@@ -735,10 +752,44 @@ func processOdooEvents(
 }
 
 // isExcludedEmail checks if the email address should be excluded from ticket creation
+// Supports exact matches and pattern matching with wildcards (*):
+// - "noreply@example.com" - exact match
+// - "*@maxadmin.io" - all emails from domain
+// - "no-reply@*" - all no-reply addresses
 func isExcludedEmail(email string, excludedEmails []string) bool {
+	return matchEmailPattern(email, excludedEmails)
+}
+
+// isNoReplyEmail checks if the email address should not receive any responses
+// (ticket is created but no confirmation or reply emails are sent)
+func isNoReplyEmail(email string, noReplyEmails []string) bool {
+	return matchEmailPattern(email, noReplyEmails)
+}
+
+// matchEmailPattern checks if email matches any pattern in the list
+// Supports exact matches and pattern matching with wildcards (*)
+func matchEmailPattern(email string, patterns []string) bool {
 	email = strings.ToLower(email)
-	for _, excluded := range excludedEmails {
-		if strings.ToLower(excluded) == email {
+	for _, pattern := range patterns {
+		pattern = strings.ToLower(pattern)
+		// Check for wildcard patterns
+		if strings.Contains(pattern, "*") {
+			// Convert wildcard pattern to simple prefix/suffix matching
+			if strings.HasPrefix(pattern, "*") {
+				// Pattern like "*@domain.com" - match suffix
+				suffix := strings.TrimPrefix(pattern, "*")
+				if strings.HasSuffix(email, suffix) {
+					return true
+				}
+			} else if strings.HasSuffix(pattern, "*") {
+				// Pattern like "no-reply@*" - match prefix
+				prefix := strings.TrimSuffix(pattern, "*")
+				if strings.HasPrefix(email, prefix) {
+					return true
+				}
+			}
+		} else if pattern == email {
+			// Exact match
 			return true
 		}
 	}

@@ -107,6 +107,8 @@ func TestHandler_InitializeTask(t *testing.T) {
 }
 
 func TestHandler_IsNewStage(t *testing.T) {
+	const newStageID int64 = 100
+
 	cfg := &config.Config{
 		App: config.App{
 			SLA: config.SLA{
@@ -114,30 +116,36 @@ func TestHandler_IsNewStage(t *testing.T) {
 				ResolutionTimeHours: 24,
 			},
 		},
+		Odoo: config.Odoo{
+			Stages: config.OdooStages{
+				New:        newStageID,
+				Assigned:   101,
+				InProgress: 102,
+				Done:       103,
+			},
+		},
 	}
 
 	handler := New(cfg, nil, nil, nil)
 
 	tests := []struct {
-		stageName string
-		expected  bool
+		name     string
+		stageID  int64
+		expected bool
 	}{
-		{"new", true},
-		{"nový", true},
-		{"draft", true},
-		{"návrh", true},
-		{"backlog", true},
-		{"in progress", false},
-		{"done", false},
-		{"closed", false},
-		{"", false},
+		{"new stage (100)", newStageID, true},
+		{"assigned stage (101)", 101, false},
+		{"in progress stage (102)", 102, false},
+		{"done stage (103)", 103, false},
+		{"unknown stage (999)", 999, false},
+		{"zero stage", 0, false},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.stageName, func(t *testing.T) {
-			result := handler.isNewStage(tt.stageName)
+		t.Run(tt.name, func(t *testing.T) {
+			result := handler.isNewStage(tt.stageID)
 			if result != tt.expected {
-				t.Errorf("isNewStage(%q) = %v, want %v", tt.stageName, result, tt.expected)
+				t.Errorf("isNewStage(%d) = %v, want %v", tt.stageID, result, tt.expected)
 			}
 		})
 	}

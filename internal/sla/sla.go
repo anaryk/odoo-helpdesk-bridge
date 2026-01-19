@@ -23,6 +23,7 @@ type Handler struct {
 	odooClient  *odoo.Client
 	slackClient *slack.Client
 	state       *state.Store
+	newStageID  int64 // Stage ID for "new" tasks from config
 }
 
 // New creates a new SLA handler
@@ -32,6 +33,7 @@ func New(cfg *config.Config, odooClient *odoo.Client, slackClient *slack.Client,
 		odooClient:  odooClient,
 		slackClient: slackClient,
 		state:       state,
+		newStageID:  cfg.Odoo.Stages.New, // Use configured stage ID
 	}
 }
 
@@ -88,8 +90,8 @@ func (h *Handler) checkTaskSLA(ctx context.Context, task *odoo.Task) error {
 	}
 
 	// Check if task was started (moved from initial stage)
-	// For simplicity, we assume if it's not "new" stage, it's started
-	isStarted := !h.isNewStage(task.StageName)
+	// Use stage ID from config instead of hardcoded stage names
+	isStarted := !h.isNewStage(task.StageID)
 	if isStarted && slaState.StartedAt == nil {
 		slaState.StartedAt = &now
 		updated = true
@@ -141,16 +143,9 @@ func (h *Handler) checkTaskSLA(ctx context.Context, task *odoo.Task) error {
 	return nil
 }
 
-func (h *Handler) isNewStage(stageName string) bool {
-	// Simple heuristic to determine if a stage is "new"
-	// You might want to make this configurable
-	newStages := []string{"new", "nový", "draft", "návrh", "backlog"}
-	for _, stage := range newStages {
-		if stage == stageName {
-			return true
-		}
-	}
-	return false
+func (h *Handler) isNewStage(stageID int64) bool {
+	// Use configured stage ID instead of hardcoded stage names
+	return stageID == h.newStageID
 }
 
 func (h *Handler) addSLALabel(ctx context.Context, taskID int64, label string) error {
