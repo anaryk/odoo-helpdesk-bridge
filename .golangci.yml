@@ -29,6 +29,18 @@ linters:
     - whitespace
     - rowserrcheck
     - noctx
+  # v2 exclusions (golangci-lint 2.x ignores the top-level issues.exclude-rules below); goconst in 2.15 also counts
+  # map keys, which are API field names here
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - mnd
+          - dupl
+          - goconst
+      - path: internal/(odoo/odoo|slack/slack|templ/templ)\.go
+        linters:
+          - goconst
 
 linters-settings:
   govet:

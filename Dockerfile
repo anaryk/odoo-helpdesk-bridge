@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.25.5-alpine AS builder
+FROM golang:1.27.4-alpine3.24 AS builder
 
 # Install necessary packages
 RUN apk add --no-cache git ca-certificates tzdata
@@ -22,7 +22,7 @@ COPY templates/ ./templates/
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o helpdesk-bridge ./cmd/helpdesk-bridge
 
 # Runtime stage
-FROM alpine:latest
+FROM alpine:3.24.4
 
 # Install ca-certificates for HTTPS requests
 RUN apk --no-cache add ca-certificates tzdata

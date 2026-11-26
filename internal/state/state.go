@@ -232,7 +232,7 @@ func (s *Store) GetSLAState(taskID int64) (*SLAState, error) {
 func itob(v int64) []byte {
 	b := make([]byte, int64ByteLength)
 	for i := uint(0); i < int64ByteLength; i++ {
-		b[i] = byte(v >> (bitShiftOffset - i*int64ByteLength))
+		b[i] = byte(v >> (bitShiftOffset - i*int64ByteLength)) //nolint:gosec // big-endian byte split, truncation intended
 	}
 	return b
 }
